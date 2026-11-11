@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#b8dded" />
+    <meta
+      name="description"
+      content="Timberline: carve a wolf down forty hand-built slalom courses across four mountains. Learners, deer, snowcats, a rival fox and an avalanche; an endless run and a new daily course every day."
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Timberline" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <title>Timberline — Downhill slalom</title>
+    <link rel="icon" type="image/png" sizes="64x64" href="./favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="A wolf skiing down a snowy slalom course"></canvas>
+    <div id="vignette" aria-hidden="true"></div>
+    <main id="ui">
+      <section id="home" class="screen">
+        <header class="topbar">
+          <span class="pill" aria-label="Stars earned"
+            ><span class="i-star"></span><b id="home-stars">0</b></span
+          >
+          <span class="pill" aria-label="Coins"
+            ><span class="i-coin"></span><b id="home-coins">0</b></span
+          >
+          <button id="settings-open" class="icon-button" aria-label="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1" />
+              <circle cx="15" cy="7" r="2" />
+              <circle cx="9" cy="12" r="2" />
+              <circle cx="17" cy="17" r="2" />
+            </svg>
+          </button>
+        </header>
+        <div class="logo">
+          <svg class="logo-peak" viewBox="0 0 120 54" aria-hidden="true">
+            <path class="peak-back" d="M2 52 38 10l14 16 12-18 54 44z" />
+            <path class="peak-snow" d="M38 10l14 16 12-18 14 13-8 5-7-6-9 12-8-9-9 7z" />
+            <path class="peak-trail" d="M64 12c-10 9 8 12-4 21s10 12 0 19" />
+          </svg>
+          <h1>Timber<wbr />line</h1>
+          <p><span>Downhill slalom</span></p>
+        </div>
+        <div class="home-bottom">
+          <button id="play" class="play-card">
+            <span class="play-text">
+              <span class="eyebrow"><i id="play-grade" class="grade g0"></i><span id="play-eyebrow">Sunrise Glades · 1</span></span>
+              <strong id="play-name">First tracks</strong>
+              <span id="play-stars" class="stars-row"></span>
+            </span>
+            <span class="play-go"><span id="play-label">Ski</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l10 7-10 7z" /></svg>
+            </span>
+          </button>
+          <nav class="tiles" aria-label="Game modes">
+            <button id="levels-open" class="tile">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2 20 9 7l4 7 3-4 6 10z" />
+              </svg>
+              <strong>Trail map</strong><small id="tile-levels">0 / 40</small>
+            </button>
+            <button id="endless" class="tile">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M7 9a3 3 0 1 0 0 6c2.5 0 3.5-2 5-3s2.500-3 5-3a3 3 0 1 1 0 6c-2.500 0-3.500-2-5-3s-2.500-3-5-3z"
+                />
+              </svg>
+              <strong>Endless</strong><small id="tile-endless">3 lives</small>
+            </button>
+            <button id="daily" class="tile">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6h16v14H4zM4 10h16M8 3v5M16 3v5" />
+              </svg>
+              <strong>Daily</strong><small id="tile-daily">New today</small>
+            </button>
+            <button id="gear-open" class="tile">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 4 4 7l2 4 2-1v10h8V10l2 1 2-4-4-3-2 2h-4z" />
+              </svg>
+              <strong>Gear</strong><small id="tile-gear">2 / 15</small>
+            </button>
+          </nav>
+          <button id="update-app" class="text-button" hidden>Update ready · Restart</button>
+        </div>
+      </section>
+
+      <section id="levels-screen" class="page" hidden aria-labelledby="levels-title">
+        <header class="page-header">
+          <button id="levels-close" class="icon-button" aria-label="Back">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+          </button>
+          <h2 id="levels-title">Trail map</h2>
+          <span class="pill"><span class="i-star"></span><b id="levels-stars">0 / 120</b></span>
+        </header>
+        <div id="worlds" class="worlds"></div>
+        <div id="level-card" class="level-card" hidden>
+          <button id="card-close" class="card-close" aria-label="Close">×</button>
+          <span class="eyebrow"><i id="card-grade" class="grade g0"></i><span id="card-eyebrow"></span></span>
+          <h3 id="card-name"></h3>
+          <p id="card-hint"></p>
+          <div id="card-tags" class="tags"></div>
+          <div class="card-row">
+            <div>
+              <span id="card-stars" class="stars-row"></span>
+              <small id="card-best"></small>
+            </div>
+            <button id="card-play" class="primary">Ski</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="gear-screen" class="gear-screen" hidden aria-labelledby="gear-title">
+        <div class="sheet">
+          <header class="page-header">
+            <button id="gear-close" class="icon-button" aria-label="Back">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+            </button>
+            <h2 id="gear-title">Gear</h2>
+            <span class="pill"><span class="i-coin"></span><b id="gear-coins">0</b></span>
+          </header>
+          <div class="segmented" role="tablist">
+            <button id="tab-outfits" role="tab" aria-selected="true">Outfits</button
+            ><button id="tab-skis" role="tab" aria-selected="false">Skis</button>
+          </div>
+          <div id="gear-grid" class="gear-grid"></div>
+          <button id="gear-action" class="primary">Wearing</button>
+          <p class="gear-note">Gear is for looks only. Coins come from the slope, from bullseyes, crates and new stars.</p>
+        </div>
+      </section>
+
+      <section id="hud" hidden aria-label="Run information">
+        <div class="hud-top">
+          <div class="hud-left">
+            <div class="hud-score">
+              <strong id="score">0</strong>
+              <div id="star-meter" class="star-meter" aria-hidden="true">
+                <div class="star-track"><i id="star-fill"></i></div>
+                <span class="i-star tick"></span><span class="i-star tick"></span
+                ><span class="i-star tick"></span>
+              </div>
+              <div id="lives" class="lives" aria-label="Lives left" hidden></div>
+            </div>
+            <div id="combo-badge" class="combo-badge" hidden><b id="combo-count">×2</b><span>combo</span></div>
+            <div id="effects" class="effects" aria-live="off"></div>
+          </div>
+          <div class="hud-mid">
+            <span id="gate-count">0 / 10</span>
+            <div class="progress-track">
+              <i id="progress-fill"></i>
+              <b id="chaser" class="chaser" hidden></b>
+            </div>
+            <span id="run-label" class="run-label">Level 1</span>
+          </div>
+          <button id="pause" class="icon-button" aria-label="Pause">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" /></svg>
+          </button>
+        </div>
+        <div id="twist" class="twist" hidden></div>
+        <div id="banner" class="banner" aria-live="polite"><strong id="banner-title"></strong><span id="banner-sub"></span></div>
+        <div id="popups" aria-hidden="true"></div>
+        <div id="warn-left" class="warn left" hidden>!</div>
+        <div id="warn-right" class="warn right" hidden>!</div>
+        <div id="tutorial" hidden>
+          <span class="drag-indicator">← <b>☝</b> →</span>
+          <p>Drag left and right to carve</p>
+        </div>
+        <div class="run-footer">
+          <span class="footer-chip"><span class="i-coin"></span><b id="coin-count">0</b></span>
+          <span id="life-progress" class="footer-chip" hidden></span>
+          <span id="speed" class="footer-chip">0 <small>km/h</small></span>
+        </div>
+        <div id="steering" hidden><i></i><b></b></div>
+      </section>
+
+      <section id="pause-screen" class="overlay" hidden>
+        <div class="dialog">
+          <h2>Paused</h2>
+          <p id="pause-detail">The mountain will wait.</p>
+          <button id="resume" class="primary">Keep skiing</button>
+          <button id="restart" class="secondary">Start again</button>
+          <div class="toggle-row">
+            <button id="pause-sound" class="chip-toggle" aria-pressed="true">Sound</button>
+            <button id="quit" class="text-button">Quit run</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings-screen" class="overlay" hidden>
+        <div class="dialog">
+          <h2>Settings</h2>
+          <div class="setting">
+            <span>Sound</span>
+            <button id="set-sound" class="switch" role="switch" aria-checked="true"><i></i></button>
+          </div>
+          <div class="setting">
+            <span>Vibration</span>
+            <button id="set-haptics" class="switch" role="switch" aria-checked="true"><i></i></button>
+          </div>
+          <div class="setting stacked">
+            <span>Steering</span>
+            <div id="set-steering" class="segmented">
+              <button data-value="0.75">Relaxed</button
+              ><button data-value="1">Normal</button
+              ><button data-value="1.35">Sharp</button>
+            </div>
+          </div>
+          <button id="how" class="secondary">How to play</button>
+          <button id="install-app" class="secondary" hidden>Install on this phone</button>
+          <p id="install-hint" class="install-hint" hidden>
+            To install: tap Share and choose “Add to Home Screen”.
+          </p>
+          <button id="reset" class="text-button danger">Reset progress</button>
+          <button id="settings-close" class="primary">Done</button>
+          <p class="version">Timberline <span id="version"></span></p>
+        </div>
+      </section>
+
+      <section id="how-screen" class="overlay" hidden>
+        <div class="dialog how">
+          <h2>How to play</h2>
+          <ul class="how-list">
+            <li>
+              <b>Carve.</b> Drag left and right anywhere on the lower screen.
+              Sharp turns cost speed, so keep them smooth.
+            </li>
+            <li>
+              <b>Gates.</b> Pass between each pair of flags. Every gate in a row
+              raises the combo, up to ×8. A missed gate or a tumble resets it.
+            </li>
+            <li>
+              <b>Bullseyes.</b> Thread the glowing spot in the middle of a gate
+              for +50, a coin and a carve boost: a burst of speed. Chain them
+              and you fly.
+            </li>
+            <li>
+              <b>Stars.</b> Each level has three star scores. One star opens the
+              next level; stars open new mountains.
+            </li>
+            <li>
+              <b>Power-ups.</b> <i class="dot magnet"></i>Magnet pulls coins in.
+              <i class="dot shield"></i>Shield takes one knock.
+              <i class="dot double"></i>×2 doubles every point for eight seconds.
+              Supply crates hold them too.
+            </li>
+            <li>
+              <b>The mountain.</b> Overtake learners, pass behind deer, keep
+              clear of snowcats. Hit a ramp straight to fly over rock. On blue
+              ice the skis barely turn: set your line first.
+            </li>
+            <li>
+              <b>Endless and Daily.</b> Three lives; every miss or tumble costs
+              one, every ten crates win one back. The daily course is the same
+              for everyone, and new each day.
+            </li>
+          </ul>
+          <p class="how-small">On a keyboard: A / D or ← / → to steer, Esc or P to pause.</p>
+          <button id="how-close" class="primary">Got it</button>
+        </div>
+      </section>
+
+      <section id="finish-screen" class="overlay finish-overlay" hidden>
+        <div class="dialog results">
+          <p id="finish-kicker" class="eyebrow">Level 1 · First tracks</p>
+          <div id="result-stars" class="big-stars" aria-label="Stars earned">
+            <span class="i-star"></span><span class="i-star"></span><span class="i-star"></span>
+          </div>
+          <h2 id="result-title">Great run!</h2>
+          <div class="result-score">
+            <strong id="result-score">0</strong>
+            <span id="result-best">Best 0</span>
+            <span id="new-best" class="badge" hidden>New best</span>
+          </div>
+          <p id="result-goal" class="result-goal"></p>
+          <p id="result-unlock" class="unlock-banner" hidden></p>
+          <dl id="result-rows" class="breakdown"></dl>
+          <div class="coins-earned">
+            <span class="i-coin"></span><strong id="result-coins">+0</strong>
+            <small id="result-coins-detail"></small>
+          </div>
+          <div class="result-actions">
+            <button id="retry" class="secondary">Again</button>
+            <button id="next-level" class="primary">Next level</button>
+          </div>
+          <div class="toggle-row">
+            <button id="finish-levels" class="text-button">Trail map</button>
+            <button id="finish-home" class="text-button">Home</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="wipe" aria-hidden="true"></div>
+
+      <div id="error" class="overlay" hidden>
+        <div class="dialog">
+          <h2>A little snow delay.</h2>
+          <p id="error-message"></p>
+          <button class="primary" onclick="location.reload()">Try again</button>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
