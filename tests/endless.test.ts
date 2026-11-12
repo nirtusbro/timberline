@@ -14,7 +14,7 @@ import {
   type EndlessCourse,
   type EndlessTheme,
 } from "../src/endless";
-import { FULL_WIDTH, LEAP_HALF, zoneAt } from "../src/extras";
+import { COIN_CLEAR, FULL_WIDTH, LEAP_HALF, zoneAt } from "../src/extras";
 import { GATE_MARGIN, SHOULDER, SLOPE_KINDS, SLOPE_MARGIN } from "../src/levels";
 import { CRATES_PER_LIFE, ENDLESS_LIVES, createEndlessRun, cruiseAt, stepRun } from "../src/physics";
 import { TRAIL_MAX_TURN, trailAt, trailDir, trailHalf, trailZ } from "../src/trail";
@@ -331,6 +331,14 @@ describe("an endless course is fair", () => {
     }
     return early;
   };
+  it("never lays a coin on the snow within reach of a rock or a tree, and still lays plenty", () => {
+    for (const seed of SEEDS) {
+      const course = course6(seed);
+      const onSnow = course.coins.filter((coin) => coin.y === 0);
+      expect(onSnow.length).toBeGreaterThan(40);
+      for (const coin of onSnow) expect(course.hazards.some((h) => Math.hypot(h.u - coin.u, h.s - coin.s) < h.radius + COIN_CLEAR - 0.2)).toBe(false);
+    }
+  });
   it("warms up on nothing but flags and coins for the whole of its first ENDLESS_WARMUP metres", () => {
     expect(before(ENDLESS_WARMUP)).toEqual([]);
     for (const seed of SEEDS) {

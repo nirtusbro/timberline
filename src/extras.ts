@@ -46,6 +46,8 @@ export const EXTRAS_BASE: ExtrasDesign = {
 /** Small coins: this many points and one coin each, picked up within this reach (wider with a magnet). */
 export const COIN_POINTS = 10;
 export const COIN_REACH = 1.5;
+/** No coin on the snow lies nearer than this to the edge of a rock or a tree: a coin is never bait. */
+export const COIN_CLEAR = 3;
 export const MAGNET_REACH = 7;
 /** How long each power-up lasts; a shield lasts until it is used. */
 export const MAGNET_TIME = 9;
@@ -209,7 +211,7 @@ export function buildExtras(
         const f = k / count,
           u = au + (bu - au) * f,
           s = as + (bs - as) * f;
-        if (hazards.some((h) => Math.hypot(h.u - u, h.s - s) < h.radius + 1.6)) continue;
+        if (hazards.some((h) => Math.hypot(h.u - u, h.s - s) < h.radius + COIN_CLEAR)) continue;
         coin(u, s);
       }
     }

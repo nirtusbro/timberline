@@ -25,7 +25,7 @@ import {
   type Zone,
   SLOPE_MARGIN,
 } from "./levels";
-import { CHASM_LENGTH, FULL_WIDTH, JUMP_GRAVITY, LEAP_HALF, RAMP_HALF, RAMP_LENGTH, RAMP_LIP, iceSheet, jumpFor } from "./extras";
+import { CHASM_LENGTH, COIN_CLEAR, FULL_WIDTH, JUMP_GRAVITY, LEAP_HALF, RAMP_HALF, RAMP_LENGTH, RAMP_LIP, iceSheet, jumpFor } from "./extras";
 import { createTrail, extendTrail, trailAt, trailHalf } from "./trail";
 
 /** The pace an endless run starts at, the pace it has all but reached after ten kilometres or so, and what every kilometre adds on top of that for ever. */
@@ -34,6 +34,8 @@ export const ENDLESS_SETTLE_SPEED = 34;
 export const ENDLESS_SPEED_CREEP = 0.35;
 /** The first of the run, with nothing on it but flags. */
 export const ENDLESS_WARMUP = 300;
+/** How often a stretch with nothing standing on it carries a trail of coins. */
+export const COIN_TRAILS = 0.75;
 
 /** What a section of the run is about. Each is met once, the gentler ones first, before any comes round again. */
 export const ENDLESS_EASY = ["rocks", "learners", "kickers", "deer", "ice"] as const;
@@ -352,6 +354,7 @@ export function createEndlessCourse(seed: number): EndlessCourse {
         lineU = (at: number) => lineAt((at - prev.s) / length);
       const km = s / 1000;
       const since = (theme: EndlessTheme) => s - (lastAt[theme] ?? -1e9);
+      const stood = hazards.length;
       const open = !quick && !lineRock && !jump && length >= 46 && prev.s >= ENDLESS_WARMUP;
       let taken = false,
         // Shaped snow carries the skis sideways: nothing stands on it.
@@ -489,9 +492,9 @@ export function createEndlessCourse(seed: number): EndlessCourse {
         const f = 0.36 + random() * 0.26;
         tree(lineAt(f) - side * (4.2 + random() * 1.4), Math.max(prev.s + 12.5, prev.s + length * f));
       }
-      // A trail of coins down the line of a stretch with nothing else on it.
-      const clear = (cu: number, cs: number) => !hazards.some((h) => Math.hypot(h.u - cu, h.s - cs) < h.radius + 1.6);
-      if (!quick && !lineRock && !taken && random() < 0.4)
+      // A trail of coins down the line of a stretch with nothing else on it: no rock, no tree, nothing that moves.
+      const clear = (cu: number, cs: number) => !hazards.some((h) => Math.hypot(h.u - cu, h.s - cs) < h.radius + COIN_CLEAR);
+      if (!quick && !lineRock && !taken && random() < COIN_TRAILS && hazards.length === stood)
         for (let k = 0; k < 5; k++) {
           const f = 0.3 + k * 0.1,
             cu = round(lineAt(f)),

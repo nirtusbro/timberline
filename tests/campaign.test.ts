@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHASM_FALL_TIME, CHASM_SWALLOW, FULL_WIDTH, LEAP_HALF, zoneAt } from "../src/extras";
+import { CHASM_FALL_TIME, CHASM_SWALLOW, COIN_CLEAR, FULL_WIDTH, LEAP_HALF, zoneAt } from "../src/extras";
 import {
   BULLSEYE_POINTS,
   CRASH_PENALTY,
@@ -539,6 +539,16 @@ describe("what stands on the course", () => {
       expect(c.tokens).toHaveLength(d.tokens.length);
       // Coins hung in the air over a kicker's rock are another matter: those are for the jump.
       for (const coin of c.coins) if (coin.y === 0) expect(c.hazards.some((h) => Math.hypot(h.u - coin.u, h.s - coin.s) < h.radius + 0.5)).toBe(false);
+    }
+  });
+  it("never lays coins where something is in the way: no trail of them on a stretch with rock, walls or anything that moves, and none on the snow within reach of a rock or a tree", () => {
+    for (const [level, d] of LEVEL_DESIGNS.entries()) {
+      const c = courses[level];
+      const inTheWay = new Set([...d.wideRocks, ...d.lineRocks, ...d.fields, ...d.rockGates, ...d.weaves, ...d.narrows.map(([stretch]) => stretch), ...d.movers.map(([stretch]) => stretch)]);
+      // The stretch into a fork ends at its island of trees.
+      for (const [gate] of d.forks) inTheWay.add(gate - 1);
+      expect(d.coins.filter((stretch) => inTheWay.has(stretch)).map((stretch) => `${c.name}: stretch ${stretch}`)).toEqual([]);
+      for (const coin of c.coins) if (coin.y === 0) expect(c.hazards.some((h) => Math.hypot(h.u - coin.u, h.s - coin.s) < h.radius + COIN_CLEAR - 0.2)).toBe(false);
     }
   });
 });

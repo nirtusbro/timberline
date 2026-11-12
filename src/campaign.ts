@@ -79,6 +79,8 @@ type Options = Partial<
   soften?: number[];
   /** How far across the trail the gates are swung, as a share of what is usual in its world: less on shaped snow, which swings the skier itself. */
   swing?: number;
+  /** Set by hand all the way down: nothing is added to its open stretches. */
+  asSet?: boolean;
 };
 const MOVERS: Record<string, MoverKind> = { S: "skier", D: "deer", K: "snowcat", H: "herd", P: "plough", B: "boulder" };
 const POWERS: Record<string, PowerKind> = { sh: "shield", mg: "magnet", x2: "double" };
@@ -106,7 +108,7 @@ const HOLD = 1.12;
 /** A course whose gates run to more than this along its trail has plain gates taken out, as far as it has them to spare. */
 const LONGEST = 1300;
 let built = 0;
-function level(name: string, role: LevelDesign["role"], hint: string, { stretch = 1, swing = 1, path = [], ...options }: Options, ...phrases: G[][]): LevelDesign {
+function level(name: string, role: LevelDesign["role"], hint: string, { stretch = 1, swing = 1, path = [], asSet = false, ...options }: Options, ...phrases: G[][]): LevelDesign {
   const world = Math.min(4, Math.floor(built++ / 8));
   const wide = SWING[world] * swing;
   let gates = phrases.flat().map((gate) => ({
@@ -128,7 +130,7 @@ function level(name: string, role: LevelDesign["role"], hint: string, { stretch 
   // The three levels that are already what the rest should be are left exactly as written.
   const level0 = built - 1;
   const asWritten = level0 === 17 || level0 === 38 || level0 === 39;
-  if (!asWritten) {
+  if (!asWritten && !asSet) {
     // Every second stretch with nothing on it gets something in the way: rock beside the line, on it or strewn across it, a learner, a deer, a falling boulder, by turns.
     // From the river on, every fifth plain gate rides a rail. At night there is only ever the one rock: the lamp shows no more.
     const rocks = [
@@ -163,6 +165,16 @@ function level(name: string, role: LevelDesign["role"], hint: string, { stretch 
       return gate;
     });
   }
+  // Coins are never laid where something stands or moves: a stretch with rock, walls or company on it, or with the
+  // island of a fork at its end, gives its coins to an open stretch next to it, if there is one with nothing on it.
+  const tagged = (t: string, tag: RegExp) => t.split(" ").some((x) => tag.test(x));
+  const inTheWay = (i: number) => tagged(gates[i].t, /^(L|G|W|w|F|S|D|H|K|P|B|N\d+)$/) || gates[i + 1]?.alt !== undefined;
+  gates.forEach((gate, i) => {
+    if (!tagged(gate.t, /^c$/) || tagged(gate.t, /^t$/) || !inTheWay(i)) return;
+    gates[i] = { ...gate, t: gate.t.split(" ").filter((x) => x !== "c").join(" ") };
+    const open = [i + 1, i - 1].find((j) => j > 0 && gates[j] && gates[j].t === "" && !gates[j].fixed && !inTheWay(j));
+    if (open !== undefined) gates[open] = { ...gates[open], t: "c" };
+  });
   path = path.map((leg, i) => {
     const before = path.slice(0, i).reverse().find((l) => l.to !== undefined)?.to ?? 0;
     const turns = leg.to !== undefined && leg.to !== before;
@@ -286,20 +298,37 @@ export const CAMPAIGN: LevelDesign[] = [
   level(
     "Stadium Slalom",
     "test",
-    "A steep pitch, red and blue all the way down and the clock running. A smooth round line keeps the speed; a jerky one bleeds it.",
-    { speed: 24.5, baseWidth: 8.6, parFactor: 1.04, timeBonusRate: 300, stretch: 1.2, path: T([100, 0, 21, 1.08], [200, 14], [200, -16, 21, 1.14], [200, 12], [200, -8]) },
-    sway(9, 4.4, 46),
+    "A race course on a steep pitch, and the clock running: open gates, a flush of four quick ones, a long delay across the hill, a staircase and a jump. Keep it round and keep it moving.",
+    { asSet: true, speed: 24.5, baseWidth: 8.6, parFactor: 1.04, timeBonusRate: 300, stretch: 1.15, path: T([100, 0, 21, 1.08], [180, 16], [160, -18, 21, 1.14], [170, 14], [150, -12, 21, 1.1], [160, 10], [160, 0]) },
+    // Open gates: the coins draw the round line.
+    last(sway(4, 4.2, 46, "c"), "w"),
+    // The flush: four quick ones nearly straight down the hill.
+    flicks(4, 2.4, 0, "", -1, 34),
+    // The delay: right across the hill and back, with a rock on the inside of the way back.
+    [g(6.5, 54, "c"), g(-6.5, 58, "w")],
+    // A staircase down across the pitch, and double points at the foot of it.
+    on(stairs(3, -4, 4, 44, "c"), [1], "L"),
     [g(0, 50, "x2")],
-    sway(8, 5.2, 44, "", -1),
+    flicks(3, 2.6, 0, "", 1, 34),
+    // The finish jump, and the run in.
+    [g(-5.5, 52, "w"), g(5.5, 54, "L J"), g(-3, 50, "c")],
+    on(sway(3, 4.8, 44, "c"), [1], "w"),
   ),
   level(
     "Gold Rush",
     "breather",
-    "A great open bowl paved with coins, and a magnet that never runs out. Swing as wide as you like and leave nothing.",
-    { speed: 24, baseWidth: 9, twist: "goldrush", stretch: 1.2, path: T([100, 0, 24], [150, 30, 32], [150, 30, 34], [170, -34], [140, -34], [170, 28, 30], [150, 0, 26]) },
-    sway(5, 5.5, 50, "c"),
-    [g(-4, 52, "L J"), g(-8, 50, "c"), g(5, 56, "c"), g(2, 48, "L J"), g(-2, 48, "c")],
-    sway(6, 6.5, 50, "c"),
+    "A great open bowl paved with coins, and a magnet that never runs out. Cross it bank to bank, fly the kickers, and swing wide for the gold.",
+    { asSet: true, speed: 24, baseWidth: 9, forkRocks: false, twist: "goldrush", detour: 6, stretch: 1.2, path: T([100, 0, 24], [150, 30, 32], [150, 30, 34], [170, -34], [140, -34], [170, 28, 30], [150, 0, 26]) },
+    sway(3, 5.5, 50, "c", -1),
+    // Bank to bank across the bowl, gold on the way, and a kicker off the far side.
+    on(stairs(4, -7.5, 5, 46, "c"), [1], "t"),
+    [g(4, 52, "c J")],
+    on(stairs(4, 7.5, -5, 46, "c"), [1], "t"),
+    [g(-4, 52, "c J")],
+    // The vein: tight down the middle of the bowl.
+    flicks(4, 2.5, 0, "c", 1, 36),
+    // And wider and wider to the line.
+    on(grow(4, 5, 8, 50, "c"), [0, 2], "t"),
   ),
   level(
     "The Merge",
@@ -487,14 +516,15 @@ export const CAMPAIGN: LevelDesign[] = [
     "Fox on Ice",
     "race",
     "Rusty slides wide on the blue. Hold your lines tighter than he does, lead the shuttle gates, and take him on the snow.",
-    { soften: [10, 17, 18], speed: 35, baseWidth: 6.4, twist: "rival", rivalPace: 0.97, stretch: 1.1, path: T([100, 0, 19], [150, -30, 19], [130, -30], [170, 32], [130, 32], [160, -26], [150, 0]) },
+    { asSet: true, soften: [10, 17, 18], speed: 35, baseWidth: 6.4, twist: "rival", rivalPace: 0.97, stretch: 1.1, path: T([100, 0, 19], [150, -30, 19], [170, -30], [170, 32], [220, 32], [170, -26], [280, -26], [150, 0]) },
     sway(3, 4.5, 48, "c"),
-    [g(5.5, 48, "i c"), g(3, 46, "i c"), g(0.5, 46, "c")],
-    [g(-4.5, 48, "c"), shuttle(-1, 54, 5, 1.6), g(3, 50, "w")],
-    [g(-5.5, 52, "i c"), g(-3, 46, "i c"), g(-0.5, 46, "c")],
-    [g(5, 48, "c"), g(-5, 50, "c")],
+    [g(4.5, 48, "i c"), g(3.3, 46, "i c"), g(2, 46, "c")],
+    // Rock stands on the snow only, and never straight off the ice: there the skis have had no chance to turn.
+    [g(-4.5, 48, "w"), shuttle(-1, 54, 5, 1.6), g(3, 50, "w")],
+    [g(-4.5, 52, "i c"), g(-3.3, 46, "i c"), g(-2, 46, "c")],
+    [g(5, 48, "L"), g(-5, 50, "c")],
     [slide(0, 56, 6.5, 1.3), shuttle(1, 58, 5, 1.8)],
-    [g(5, 50, "i c"), g(2.5, 46, "i c"), g(0, 46, "c")],
+    [g(4, 50, "i c"), g(2.8, 46, "i c"), g(1.5, 46, "c")],
     sway(2, 5, 46, "c"),
   ),
   // ================================================================ 4 Granite Gorge
