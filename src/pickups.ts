@@ -3,10 +3,13 @@ import { surfaceHeight, type Course, type Run } from "./physics";
 import { MAX_TOKENS } from "./levels";
 import { box, material, rod, shape } from "./geometry";
 import { CRATE_FALL_TIME, CRATE_POOL_SIZE } from "./crates";
+import { snowTilt } from "./terrain";
+import { lampMode } from "./lamp";
 
-const gold = new THREE.MeshBasicMaterial({ color: "#ffc531", toneMapped: false }),
-  goldDeep = new THREE.MeshBasicMaterial({ color: "#e09a12", toneMapped: false }),
-  goldPale = new THREE.MeshBasicMaterial({ color: "#fff0a8", toneMapped: false });
+// Gold glints in a lamp, and only in one.
+const gold = lampMode(new THREE.MeshBasicMaterial({ color: "#ffc531", toneMapped: false }), { retro: 0.4, facing: 0 }),
+  goldDeep = lampMode(new THREE.MeshBasicMaterial({ color: "#e09a12", toneMapped: false }), { retro: 0.4, facing: 0 }),
+  goldPale = lampMode(new THREE.MeshBasicMaterial({ color: "#fff0a8", toneMapped: false }), { retro: 0.4, facing: 0 });
 /** Round enough to read as a coin at any distance. */
 const disc = new THREE.CylinderGeometry(1, 1, 1, 24);
 const plank = material("#b98755"),
@@ -123,7 +126,9 @@ export class Pickups {
       this.tokens.forEach((group, i) => {
         const spot = s.course.tokens[i];
         group.userData.used = !!spot;
-        if (spot) group.position.set(spot.x, surfaceHeight(s.course, spot.x, spot.z), spot.z);
+        if (!spot) return;
+        group.position.set(spot.x, surfaceHeight(s.course, spot.x, spot.z), spot.z);
+        group.getObjectByName("glow")!.rotation.x = -Math.PI / 2 + snowTilt(s.course.trail, spot.z);
       });
     }
     for (const [i, visual] of this.crates.entries()) {
@@ -152,7 +157,8 @@ export class Pickups {
       const fold = falling ? 1 : Math.max(0, 1 - item.age / 0.35);
       chute.visible = fold > 0 && !collected;
       chute.scale.set(fold, 0.4 + 0.6 * fold, fold);
-      visual.marker.position.set(item.x, ground + 0.06, item.z);
+      visual.marker.position.set(item.x, ground + 0.08, item.z);
+      visual.marker.rotation.x = -Math.PI / 2 + snowTilt(s.course.trail, item.z);
       visual.marker.scale.setScalar(falling ? 1 + Math.sin(s.time * 8) * 0.12 : 1);
       (visual.marker.material as THREE.MeshBasicMaterial).opacity = falling ? 0.9 : 0.55;
     }
@@ -167,7 +173,7 @@ export class Pickups {
       this.tokenTaken[i] = taken;
       const age = time - this.tokenTimes[i];
       const spot = s.course.tokens[i];
-      g.visible = spot.z > s.z - 12 && spot.z < s.z + 230 && (!taken || age < 0.42);
+      g.visible = spot.s > s.s - 12 && spot.s < s.s + 260 && (!taken || age < 0.42);
       if (!g.visible) continue;
       const coin = g.getObjectByName("coin")!;
       coin.rotation.y = time * 2.4 + i;

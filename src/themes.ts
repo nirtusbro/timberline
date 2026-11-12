@@ -42,10 +42,11 @@ const theme = (
   stars,
   aurora,
 });
-/** One per mountain: clear morning, golden afternoon, dusk, and night under the aurora. */
+/** One per world: clear morning, golden afternoon in the pines, hard blue cold on the river, dusk in the gorge, and night under the aurora. */
 export const THEMES: Theme[] = [
   theme("#b8dded", "#f5fbff", "#98afca", 1.8, "#fff8df", 2.5, "#ffffff", "#ffffff", 0.55),
   theme("#f3cfa2", "#fff0d8", "#b7a08f", 1.65, "#ffc37a", 2.7, "#fff1de", "#fff3df", 0.6),
+  theme("#7cc8f0", "#f2fbff", "#8fc0e0", 1.95, "#f4fbff", 2.3, "#f7fcff", "#ffffff", 0.4),
   theme("#c79bc4", "#ecd6f2", "#7d78a6", 1.45, "#ff9a78", 2.1, "#eedcf0", "#f6c9c9", 0.5),
   theme("#111c40", "#8ea4e6", "#27335e", 1.25, "#b9ccff", 1.5, "#8094cd", "#3a4a80", 0.35, 1, 1),
 ];
@@ -78,3 +79,12 @@ export function endlessTheme(z: number): Theme {
     (into - fadeStart) / ENDLESS_THEME_FADE,
   );
 }
+
+/** What stands beside the piste in each world, and in what colours: see Environment.setBiome. */
+export const BIOMES: import("./environment").Biome[] = [
+  { show: ["woods", "fence", "lamps", "cabins"], pine: "#326c64", stone: "#8396a6", peak: "#8cb3ce", peakSnow: "#f0f6fd", skyline: 1 },
+  { show: ["woods", "thicket"], pine: "#2b5e3c", stone: "#8c8a7c", peak: "#8f9a6c", peakSnow: "#f3e6c0", skyline: 0.55 },
+  { show: ["spires"], pine: "#3b7f86", stone: "#9fc6de", peak: "#5aa6dc", peakSnow: "#ffffff", skyline: 0.8 },
+  { show: ["walls"], pine: "#3d5a52", stone: "#857a8c", peak: "#7d6f9a", peakSnow: "#f1dff0", skyline: 1.45 },
+  { show: ["lamps"], pine: "#27484f", stone: "#6f7fa6", peak: "#2a3870", peakSnow: "#b9c6f2", skyline: 1.2 },
+];

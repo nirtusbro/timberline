@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { surfaceHeight, type Run } from "./physics";
 import { SLIP_ACCEL, SLIP_GRIP } from "./levels";
+import { lampMode } from "./lamp";
 
 const TRACKS = 900,
   PARTICLES = 110;
@@ -9,7 +10,7 @@ export class SnowEffects {
   private trackGeometry = new THREE.BufferGeometry();
   private cursor = 0;
   private previous = [new THREE.Vector3(), new THREE.Vector3()];
-  private lastZ = -100;
+  private lastS = -100;
   private particles = new Float32Array(PARTICLES * 3);
   private velocities = new Float32Array(PARTICLES * 3);
   private life = new Float32Array(PARTICLES);
@@ -53,14 +54,17 @@ export class SnowEffects {
     );
     const points = new THREE.Points(
       this.particleGeometry,
-      new THREE.PointsMaterial({
-        color: "#ffffff",
-        size: 0.3,
-        map: new THREE.CanvasTexture(sprite),
-        transparent: true,
-        depthWrite: false,
-        opacity: 0.85,
-      }),
+      lampMode(
+        new THREE.PointsMaterial({
+          color: "#ffffff",
+          size: 0.3,
+          map: new THREE.CanvasTexture(sprite),
+          transparent: true,
+          depthWrite: false,
+          opacity: 0.85,
+        }),
+        { veil: true },
+      ),
     );
     points.frustumCulled = false;
     scene.add(points);
@@ -69,14 +73,14 @@ export class SnowEffects {
     this.positions.fill(-10000);
     this.particles.fill(-10000);
     this.life.fill(0);
-    this.lastZ = -100;
+    this.lastS = -100;
     this.cursor = 0;
     this.trackGeometry.attributes.position.needsUpdate = true;
     this.particleGeometry.attributes.position.needsUpdate = true;
   }
   update(s: Run, dt: number, active: boolean) {
-    if (active && s.z - this.lastZ > 0.18 && s.crashTime === 0) {
-      const reset = s.z - this.lastZ > 3;
+    if (active && Math.abs(s.s - this.lastS) > 0.18 && s.crashTime === 0 && !s.airborne) {
+      const reset = Math.abs(s.s - this.lastS) > 3;
       for (let side = 0; side < 2; side++) {
         const offset = side === 0 ? -0.3 : 0.3;
         const x =
@@ -92,14 +96,18 @@ export class SnowEffects {
         }
         p.set(x, y, z);
       }
-      this.lastZ = s.z;
+      this.lastS = s.s;
       this.trackGeometry.attributes.position.needsUpdate = true;
     }
     if (active) {
       // Skidding sideways throws snow too, more the faster the skid, and it flies the way the skis slide.
       const skid = s.crashTime > 0 ? 0 : s.slip / (SLIP_ACCEL * SLIP_GRIP);
+      // How hard the skis are turned off the line of travel: that, not where they point on the mountain, is what throws snow.
+      const turn = s.heading - s.aim;
+      const sin = Math.sin(s.heading),
+        cos = Math.cos(s.heading);
       this.emit +=
-        dt * (s.crashTime > 0 ? 130 : 8 + Math.abs(s.heading) * 90 + Math.abs(skid) * 50);
+        dt * (s.crashTime > 0 ? 130 : s.airborne ? 0 : 8 + Math.abs(turn) * 90 + Math.abs(skid) * 50 + (s.powder ? 70 : 0));
       while (this.emit >= 1) {
         this.emit--;
         const i = this.particleCursor;
@@ -107,18 +115,18 @@ export class SnowEffects {
         const b = i * 3;
         this.particles.set(
           [
-            s.x + (Math.random() - 0.5) * 0.8,
+            s.x - sin * 0.55 + (Math.random() - 0.5) * 0.8,
             surfaceHeight(s.course, s.x, s.z) + 0.17,
-            s.z - 0.55,
+            s.z - cos * 0.55 + (Math.random() - 0.5) * 0.4,
           ],
           b,
         );
         this.velocities.set(
-          [
-            -s.heading * 5 + skid * 3 + (Math.random() - 0.5) * 3,
-            1 + Math.random() * 2,
-            -2 - Math.random() * 3,
-          ],
+          // Thrown to the outside of the turn and back along the tracks, whichever way those run.
+          ((across: number, back: number) => [across * cos - back * sin, 1 + Math.random() * (s.powder ? 3.2 : 2), -across * sin - back * cos])(
+            -turn * 5 + skid * 3 + (Math.random() - 0.5) * 3,
+            2 + Math.random() * 3,
+          ),
           b,
         );
         this.life[i] = 0.35 + Math.random() * 0.5;

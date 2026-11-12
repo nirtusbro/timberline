@@ -20,6 +20,8 @@ export class Wolf {
   scarf: THREE.Mesh[] = [];
   tail = new THREE.Group();
   private tuck = 0;
+  /** When the wolf was last greeted (tapped on the home screen): he hops and waves for a moment. */
+  greet = -9;
   private suit = material("#2367a1");
   private trim = material("#e23a36");
   private scarfColor = material("#e23a36");
@@ -271,12 +273,15 @@ export class Wolf {
     );
   }
   animate(
-    s: Pick<Run, "crashTime" | "heading"> & Partial<Pick<Run, "airborne" | "boost" | "speed">>,
+    s: Pick<Run, "crashTime" | "heading"> & Partial<Pick<Run, "airborne" | "boost" | "speed" | "passed" | "finished">>,
     t: number,
     mode: string,
   ) {
     const menu = !["playing", "paused", "celebrating", "finished"].includes(mode);
-    const celebrating = mode === "finished" || mode === "celebrating";
+    const over = mode === "finished" || mode === "celebrating";
+    // A run that earned nothing ends with a hung head, not a cheer; a greeting is a short cheer.
+    const sad = over && s.passed === false;
+    const celebrating = (over && !sad) || (menu && t - this.greet < 0.9);
     this.body.position.y =
       s.crashTime > 0
         ? 0
@@ -287,17 +292,21 @@ export class Wolf {
     // A tuck when boosting, a crouch with the knees up in the air.
     const tuck = menu || celebrating || s.crashTime > 0 ? 0 : s.airborne ? 0.55 : (s.boost ?? 0) > 0 ? 0.32 : 0;
     this.tuck += (tuck - this.tuck) * 0.18;
-    this.body.rotation.x = this.tuck;
+    this.body.rotation.x = sad ? 0.42 : this.tuck;
     this.body.position.y -= this.tuck * 0.22;
     this.head.rotation.y = menu
       ? -0.6 + Math.sin(t * 0.7) * 0.1
-      : celebrating
+      : mode === "celebrating"
         ? 2.5
-        : -s.heading * 0.25;
-    this.head.rotation.x = Math.sin(t * 2) * 0.025;
+        : over
+          ? Math.sin(t * 1.4) * 0.25
+          : -s.heading * 0.25;
+    this.head.rotation.x = sad ? 0.55 : Math.sin(t * 2) * 0.025;
     this.tail.rotation.y = Math.sin(t * 5) * 0.16;
     this.arms.forEach((a, i) => {
-      a.rotation.z = celebrating
+      a.rotation.z = sad
+        ? (i ? -1 : 1) * 0.25
+        : celebrating
         ? (i ? 1 : -1) * 2.4
         : Math.sin(t * 5 + i) * 0.08 - s.heading * 0.16;
       a.rotation.x = celebrating ? -0.5 : Math.abs(s.heading) * 0.15 - this.tuck * 1.4;

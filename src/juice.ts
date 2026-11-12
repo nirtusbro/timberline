@@ -1,14 +1,19 @@
 import * as THREE from "three";
-import { snowHeight, surfaceHeight, type Run } from "./physics";
-import type { Weather } from "./levels";
+import { surfaceHeight, type Run } from "./physics";
+import { SHOULDER, type Weather } from "./levels";
+import { faceHeight, trailAt, trailHalf } from "./trail";
+import { snowTilt } from "./terrain";
 import { POWER_COLORS } from "./props";
 import { sphere } from "./geometry";
+import { lampMode } from "./lamp";
 
 const SPARKS = 420,
-  FLAKES = 1100,
+  FLAKES = 1300,
+  FLAKE_BOX = 90,
   STREAKS = 46,
   RINGS = 8,
-  POLES = 26,
+  POLES = 24,
+  POLE_STEP = 20,
   BILLOWS = 90,
   CHUNKS = 16,
   SHADOW_REACH = 46;
@@ -69,6 +74,8 @@ export class Juice {
   private chunks: THREE.InstancedMesh;
   private chunkSeed = new Float32Array(CHUNKS * 4);
   private trail = 0;
+  private tilt = 0.2;
+  private shadowLie: Float32Array;
   /** Camera shake still to play out, in metres. */
   shake = 0;
   constructor(scene: THREE.Scene) {
@@ -76,24 +83,28 @@ export class Juice {
     this.sparkGeo.setAttribute("color", new THREE.BufferAttribute(this.sparkCol, 3).setUsage(THREE.DynamicDrawUsage));
     const sparks = new THREE.Points(
       this.sparkGeo,
-      new THREE.PointsMaterial({
-        size: 0.27,
-        map: dot(false),
-        vertexColors: true,
-        transparent: true,
-        depthWrite: false,
-        toneMapped: false,
-      }),
+      lampMode(
+        new THREE.PointsMaterial({
+          size: 0.27,
+          map: dot(false),
+          vertexColors: true,
+          transparent: true,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+        { veil: true },
+      ),
     );
     sparks.frustumCulled = false;
     sparks.renderOrder = 3;
     scene.add(sparks);
     for (let i = 0; i < FLAKES; i++)
-      this.flakePos.set([Math.random() * 70 - 35, Math.random() * 34, Math.random() * 110], i * 3);
+      this.flakePos.set([Math.random() * FLAKE_BOX, Math.random() * 34, Math.random() * FLAKE_BOX], i * 3);
     this.flakeGeo.setAttribute("position", new THREE.BufferAttribute(this.flakePos, 3).setUsage(THREE.DynamicDrawUsage));
     this.flakes = new THREE.Points(
       this.flakeGeo,
-      new THREE.PointsMaterial({ size: 0.22, map: dot(), color: "#ffffff", transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }),
+      // A flake in the beam is a bright speck; out of it, it is not there.
+      lampMode(new THREE.PointsMaterial({ size: 0.22, map: dot(), color: "#ffffff", transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }), { veil: true, retro: 1.5 }),
     );
     this.flakes.frustumCulled = false;
     scene.add(this.flakes);
@@ -105,7 +116,7 @@ export class Juice {
     this.streakGeo.setAttribute("position", new THREE.BufferAttribute(this.streakPos, 3).setUsage(THREE.DynamicDrawUsage));
     this.streaks = new THREE.LineSegments(
       this.streakGeo,
-      new THREE.LineBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
+      lampMode(new THREE.LineBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false, toneMapped: false }), { veil: true }),
     );
     this.streaks.frustumCulled = false;
     scene.add(this.streaks);
@@ -121,13 +132,15 @@ export class Juice {
       scene.add(mesh);
       this.rings.push({ mesh, age: 9 });
     }
-    // Piste poles: orange on the right, blue on the left, every twenty metres. They are what speed is read against.
-    const poleGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.9, 6);
-    poleGeo.translate(0, 0.95, 0);
-    this.poles = new THREE.InstancedMesh(poleGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false }), POLES * 2);
-    const capGeo = new THREE.SphereGeometry(0.17, 8, 6);
-    capGeo.translate(0, 1.95, 0);
-    this.poleCaps = new THREE.InstancedMesh(capGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false }), POLES * 2);
+    // Piste poles: orange down one edge of the groomed snow, blue down the other, every twenty metres of trail.
+    // They are what speed is read against, and what says where the trail goes next.
+    // By night and in fog they are the breadcrumbs: each wears a reflective band, dark until the lamp finds it.
+    const poleGeo = new THREE.CylinderGeometry(0.095, 0.095, 2.5, 6);
+    poleGeo.translate(0, 1.25, 0);
+    this.poles = new THREE.InstancedMesh(poleGeo, lampMode(new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false }), { retro: 2, facing: 0 }), POLES * 2);
+    const capGeo = new THREE.SphereGeometry(0.26, 8, 6);
+    capGeo.translate(0, 2.58, 0);
+    this.poleCaps = new THREE.InstancedMesh(capGeo, lampMode(new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false }), { retro: 3.5, facing: 0 }), POLES * 2);
     for (let i = 0; i < POLES * 2; i++) {
       this.poles.setColorAt(i, tint.set(i % 2 ? "#ff7a1a" : "#2f8fe0"));
       this.poleCaps.setColorAt(i, tint.set(i % 2 ? "#ffb060" : "#7cc1ff"));
@@ -175,9 +188,20 @@ export class Juice {
     const shadowGeo = new THREE.PlaneGeometry(44, SHADOW_REACH, 8, 23);
     shadowGeo.rotateX(-Math.PI / 2);
     shadowGeo.translate(0, 0, SHADOW_REACH / 2);
+    this.shadowLie = (shadowGeo.attributes.position.array as Float32Array).slice();
     this.shadow = new THREE.Mesh(
       shadowGeo,
-      new THREE.MeshBasicMaterial({ color: "#35527c", map: new THREE.CanvasTexture(shade), transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false }),
+      new THREE.MeshBasicMaterial({
+        color: "#35527c",
+        map: new THREE.CanvasTexture(shade),
+        transparent: true,
+        opacity: 0.6,
+        depthWrite: false,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
     );
     this.shadow.frustumCulled = false;
     this.shadow.renderOrder = 1;
@@ -187,7 +211,7 @@ export class Juice {
       CHUNKS,
     );
     for (let i = 0; i < CHUNKS; i++)
-      this.chunkSeed.set([(i % 2 ? 1 : -1) * (3.5 + Math.random() * 13), Math.random() * 85, 0.4 + Math.random() * 0.8, 8 + Math.random() * 14], i * 4);
+      this.chunkSeed.set([(i % 2 ? 1 : -1) * (10.5 + Math.random() * 8), Math.random() * 85, 0.4 + Math.random() * 0.8, 8 + Math.random() * 14], i * 4);
     this.chunks.frustumCulled = false;
     this.billows.visible = this.wall.visible = this.shadow.visible = this.chunks.visible = false;
     scene.add(this.billows, this.wall, this.shadow, this.chunks);
@@ -199,8 +223,10 @@ export class Juice {
     for (const r of this.rings) r.mesh.visible = false;
     this.shake = 0;
   }
-  /** A spray of sparks of one colour from a point. */
-  burst(x: number, y: number, z: number, color: string, count = 12, speed = 5, forward = 0) {
+  /** A spray of sparks of one colour from a point, carried `forward` metres a second along a heading. */
+  burst(x: number, y: number, z: number, color: string, count = 12, speed = 5, forward = 0, heading = 0) {
+    const fx = Math.sin(heading) * forward,
+      fz = Math.cos(heading) * forward;
     tint.set(color);
     for (let n = 0; n < count; n++) {
       const i = this.sparkCursor;
@@ -209,7 +235,7 @@ export class Juice {
         up = 0.3 + Math.random() * 0.9,
         v = speed * (0.5 + Math.random() * 0.7);
       this.sparkPos.set([x, y, z], i * 3);
-      this.sparkVel.set([Math.cos(a) * v, up * v, Math.sin(a) * v * 0.6 + forward], i * 3);
+      this.sparkVel.set([Math.cos(a) * v * 0.8 + fx, up * v, Math.sin(a) * v * 0.8 + fz], i * 3);
       this.sparkCol.set([tint.r, tint.g, tint.b], i * 3);
       this.sparkLife[i] = 0.4 + Math.random() * 0.35;
     }
@@ -218,13 +244,17 @@ export class Juice {
   ring(x: number, y: number, z: number, color: string, size = 1) {
     const r = this.rings.reduce((a, b) => (a.age > b.age ? a : b));
     r.age = 0;
-    r.mesh.position.set(x, y + 0.06, z);
+    r.mesh.position.set(x, y + 0.08, z);
+    r.mesh.rotation.x = this.tilt;
     r.mesh.userData.size = size;
     (r.mesh.material as THREE.MeshBasicMaterial).color.set(color);
     r.mesh.visible = true;
   }
-  update(s: Run, dt: number, time: number, camera: THREE.Camera, weather: Weather, running: boolean, snowTint: THREE.Color) {
+  update(s: Run, dt: number, time: number, camera: THREE.Camera, yaw: number, weather: Weather, running: boolean, snowTint: THREE.Color) {
     const playing = running && !s.finished;
+    const course = s.course,
+      trail = course.trail;
+    this.tilt = snowTilt(trail, s.z);
     // Sparks.
     for (let i = 0; i < SPARKS; i++) {
       if (this.sparkLife[i] <= 0) continue;
@@ -253,23 +283,30 @@ export class Juice {
       r.mesh.scale.setScalar((1 + t * 4.5) * (r.mesh.userData.size as number));
       (r.mesh.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - t) * (1 - t);
     }
-    // Snowfall lives in a box that travels with the camera, so it never runs out.
+    // Snowfall lives in a box that travels ahead of the camera, whichever way it faces, so it never runs out.
     const fall = SNOWFALL[weather];
     this.amount += (fall.amount - this.amount) * Math.min(1, dt * 1.5);
+    const sinY = Math.sin(yaw),
+      cosY = Math.cos(yaw);
     const cx = camera.position.x,
       cy = camera.position.y,
       cz = camera.position.z;
+    const boxX = cx + sinY * FLAKE_BOX * 0.42,
+      boxZ = cz + cosY * FLAKE_BOX * 0.42,
+      // The box rides the mountain down with the view: its middle is a little below the camera.
+      boxY = cy - 2;
     for (let i = 0; i < FLAKES; i++) {
       const b = i * 3;
-      this.flakePos[b] = wrap(this.flakePos[b] + (fall.wind + Math.sin(time * 1.3 + i) * 0.8) * dt, cx, 70);
-      this.flakePos[b + 1] = wrap(this.flakePos[b + 1] - (fall.fall + (i % 5) * 0.3) * dt, cy + 6, 34);
-      this.flakePos[b + 2] = wrap(this.flakePos[b + 2], cz + 52, 110);
+      this.flakePos[b] = wrap(this.flakePos[b] + (fall.wind + Math.sin(time * 1.3 + i) * 0.8) * dt, boxX, FLAKE_BOX);
+      this.flakePos[b + 1] = wrap(this.flakePos[b + 1] - (fall.fall + (i % 5) * 0.3) * dt, boxY, 34);
+      this.flakePos[b + 2] = wrap(this.flakePos[b + 2], boxZ, FLAKE_BOX);
     }
     this.flakeGeo.attributes.position.needsUpdate = true;
     this.flakeGeo.setDrawRange(0, Math.round(FLAKES * this.amount));
     (this.flakes.material as THREE.PointsMaterial).size = weather === "blizzard" ? 0.3 : 0.22;
-    // Streaks of speed: lines that rush past the camera, brighter the faster the run.
-    const rush = playing && s.crashTime === 0 ? Math.max(0, (s.speed - 34) / 26) + (s.boost > 0 ? 0.55 : 0) : 0;
+    // Streaks of speed: lines that rush past the camera the way it faces, brighter the faster the run.
+    // Not by night: a line of light hanging in the dark is lit by nothing.
+    const rush = playing && s.crashTime === 0 && !course.night ? Math.max(0, (s.speed - 34) / 26) + (s.boost > 0 ? 0.55 : 0) : 0;
     const streakMat = this.streaks.material as THREE.LineBasicMaterial;
     streakMat.opacity += (Math.min(0.5, rush * 0.42) - streakMat.opacity) * Math.min(1, dt * 6);
     this.streaks.visible = streakMat.opacity > 0.01;
@@ -277,21 +314,28 @@ export class Juice {
       for (let i = 0; i < STREAKS; i++) {
         const b = i * 3;
         this.streakSeed[b + 2] = (((this.streakSeed[b + 2] - s.speed * 1.4 * dt) % 70) + 70) % 70;
-        const x = cx + this.streakSeed[b],
-          z = cz - 4 + this.streakSeed[b + 2],
-          y = snowHeight(z) + this.streakSeed[b + 1],
-          len = 1.5 + s.speed * 0.09;
-        this.streakPos.set([x, y, z, x, y - len * 0.1, z + len], i * 6);
+        const across = this.streakSeed[b],
+          along = this.streakSeed[b + 2] - 4,
+          x = cx + across * cosY + along * sinY,
+          z = cz - across * sinY + along * cosY,
+          len = 1.5 + s.speed * 0.09,
+          x1 = x + sinY * len,
+          z1 = z + cosY * len;
+        this.streakPos.set([x, faceHeight(trail, z) + this.streakSeed[b + 1], z, x1, faceHeight(trail, z1) + this.streakSeed[b + 1], z1], i * 6);
       }
     this.streakGeo.attributes.position.needsUpdate = true;
-    // Poles keep pace with the skier, twenty metres apart.
-    const first = Math.floor((s.z - 30) / 20);
+    // Poles keep pace with the skier down both edges of the groomed snow, twenty metres of trail apart.
+    // Where sight is short they stand twice as close, so there are always a few in view to show where the trail bends.
+    const step = course.night || weather === "fog" || weather === "blizzard" ? POLE_STEP / 2 : POLE_STEP;
+    const first = Math.floor((s.s - 40) / step);
     for (let i = 0; i < POLES; i++) {
-      const z = (first + i) * 20;
+      const at = (first + i) * step,
+        half = trailHalf(trail, at);
       for (const side of [0, 1]) {
-        dummy.position.set(side ? 13.6 : -13.6, snowHeight(z), z);
+        const p = trailAt(trail, at, side ? half : -half);
+        dummy.position.set(p.x, surfaceHeight(course, p.x, p.z) - 0.1, p.z);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.setScalar(1);
+        dummy.scale.setScalar(Number.isFinite(course.finishS) && at > course.finishS + 40 ? 0 : 1);
         dummy.updateMatrix();
         this.poles.setMatrixAt(i * 2 + side, dummy.matrix);
         this.poleCaps.setMatrixAt(i * 2 + side, dummy.matrix);
@@ -300,14 +344,17 @@ export class Juice {
     this.poles.instanceMatrix.needsUpdate = this.poleCaps.instanceMatrix.needsUpdate = true;
     this.poles.visible = this.poleCaps.visible = running;
     // Power-ups about the skier.
-    const ground = surfaceHeight(s.course, s.x, s.z);
+    const ground = surfaceHeight(course, s.x, s.z);
     const feet = ground + s.y;
+    const sinH = Math.sin(s.heading),
+      cosH = Math.cos(s.heading);
     this.bubble.visible = playing && s.shield;
     this.bubble.position.set(s.x, feet + 1.1, s.z);
     this.bubble.scale.setScalar(1 + Math.sin(time * 5) * 0.04);
     const fade = (left: number) => (left < 2 ? 0.35 + 0.65 * Math.abs(Math.sin(left * 9)) : 1);
     this.aura.visible = playing && s.magnet > 0;
-    this.aura.position.set(s.x, ground + 0.07, s.z);
+    this.aura.position.set(s.x, ground + 0.1, s.z);
+    this.aura.rotation.x = this.tilt;
     this.aura.scale.setScalar(1 + ((time * 1.6) % 1) * 3.4);
     (this.aura.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - ((time * 1.6) % 1)) * fade(s.magnet);
     this.halo.visible = playing && s.double > 0;
@@ -319,25 +366,30 @@ export class Juice {
       this.trail += dt;
       if (this.trail > 0.03) {
         this.trail = 0;
-        if (s.boost > 0 && s.crashTime === 0) this.burst(s.x, feet + 0.25, s.z - 1.1, s.boost > 1 ? "#ffd23c" : "#ff8a2a", 2, 1.6, -5);
-        if (s.double > 0 && Math.random() < 0.4) this.burst(s.x, feet + 1.4, s.z - 0.5, POWER_COLORS.double, 1, 1.5, -3);
+        if (s.boost > 0 && s.crashTime === 0)
+          this.burst(s.x - sinH * 1.1, feet + 0.25, s.z - cosH * 1.1, s.boost > 1 ? "#ffd23c" : "#ff8a2a", 2, 1.6, -5, s.heading);
+        if (s.double > 0 && Math.random() < 0.4) this.burst(s.x - sinH * 0.5, feet + 1.4, s.z - cosH * 0.5, POWER_COLORS.double, 1, 1.5, -3, s.heading);
       }
     }
-    // The avalanche.
-    const slide = !Number.isNaN(s.avalancheZ) && running;
+    // The avalanche comes down the trail: everything of it is laid out along the trail and across it.
+    const slide = !Number.isNaN(s.avalancheS) && running;
     this.billows.visible = this.wall.visible = this.shadow.visible = this.chunks.visible = slide;
     if (slide) {
-      const front = s.avalancheZ;
+      const front = s.avalancheS,
+        reach = trailHalf(trail, front) + SHOULDER;
       (this.wall.material as THREE.MeshBasicMaterial).color.set("#eef4fb").multiply(snowTint);
-      this.wall.position.set(0, snowHeight(front - 9) + 16, front - 9);
+      const back = trailAt(trail, front - 9, 0);
+      this.wall.position.set(back.x, surfaceHeight(course, back.x, back.z) + 16, back.z);
+      this.wall.rotation.y = back.dir;
+      this.wall.scale.x = (reach + 14) / 70;
       for (let i = 0; i < BILLOWS; i++) {
         const b = i * 4,
           row = this.billowSeed[b + 1],
           phase = this.billowSeed[b + 2],
           size = this.billowSeed[b + 3];
-        const z = front - row * 9 + Math.sin(time * 2.4 + phase) * 1.2,
+        const p = trailAt(trail, front - row * 9 + Math.sin(time * 2.4 + phase) * 1.2, (this.billowSeed[b] / 32) * reach),
           roll = Math.sin(time * 3.1 + phase * 2);
-        dummy.position.set(this.billowSeed[b], snowHeight(z) + size * 0.5 + row * 7 + roll * 0.7, z);
+        dummy.position.set(p.x, surfaceHeight(course, p.x, p.z) + size * 0.5 + row * 7 + roll * 0.7, p.z);
         dummy.scale.setScalar(size * (1 + roll * 0.14));
         dummy.rotation.set(time * 1.3 + phase, phase, 0);
         dummy.updateMatrix();
@@ -345,29 +397,36 @@ export class Juice {
       }
       this.billows.instanceMatrix.needsUpdate = true;
       // Snow thrown ahead of the front, and a rumble through the camera as it closes.
-      if (playing && dt > 0 && Math.random() < 0.7)
-        this.burst(Math.random() * 44 - 22, snowHeight(front) + 1.5, front + 1, "#ffffff", 2, 5, 9);
-      const gap = s.z - front;
+      if (playing && dt > 0 && Math.random() < 0.7) {
+        const p = trailAt(trail, front + 1, (Math.random() * 2 - 1) * reach);
+        this.burst(p.x, surfaceHeight(course, p.x, p.z) + 1.5, p.z, "#ffffff", 2, 5, 9, p.dir);
+      }
+      const gap = s.s - front;
       const near = Math.max(0, 1 - gap / 70);
       const presence = Math.max(0, Math.min(1, 1 - (gap - 20) / 90));
-      // The shadow lies on the snow, banks and all: its vertices are laid on the surface each frame.
-      this.shadow.position.set(0, 0, front - 4);
-      const lay = this.shadow.geometry.attributes.position;
-      for (let i = 0; i < lay.count; i++)
-        lay.setY(i, surfaceHeight(s.course, lay.getX(i), lay.getZ(i) + front - 4) + 0.07);
+      // The shadow lies on the snow down the trail ahead of the front, banks and all: its vertices are laid on the surface each frame.
+      const lay = this.shadow.geometry.attributes.position,
+        lie = this.shadowLie;
+      for (let i = 0; i < lay.count; i++) {
+        const sv = front - 4 + lie[i * 3 + 2],
+          p = trailAt(trail, sv, (lie[i * 3] / 22) * (trailHalf(trail, sv) + SHOULDER));
+        lay.setXYZ(i, p.x, surfaceHeight(course, p.x, p.z) + 0.07, p.z);
+      }
       lay.needsUpdate = true;
       (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.35 * near;
-      // Boulders of snow bound out of the front and on down the slope, each in its own lane clear of the skier's.
+      // Boulders of snow bound out of the front and on down the trail, each in its own lane clear of the skier's.
       for (let i = 0; i < CHUNKS; i++) {
         const b = i * 4,
           size = this.chunkSeed[b + 2],
           ahead = (this.chunkSeed[b + 1] + time * this.chunkSeed[b + 3]) % 85,
           // They come from behind the camera and bound on down the slope, however far back the front is.
-          z = s.z - 24 + ahead,
+          sv = s.s - 24 + ahead,
+          u = (this.chunkSeed[b] / 20) * (trailHalf(trail, sv) - 1.5),
+          p = trailAt(trail, sv, u),
           hop = Math.abs(Math.sin(time * 4.2 + i * 1.7)) * (1.2 + size);
-        dummy.position.set(this.chunkSeed[b], snowHeight(z) + size * 0.7 + hop, z);
+        dummy.position.set(p.x, surfaceHeight(course, p.x, p.z) + size * 0.7 + hop, p.z);
         // One about to bound through the skier is dropped: they are scenery, and must never look like a hit.
-        const through = Math.abs(this.chunkSeed[b] - s.x) < 2.6 && Math.abs(z - s.z) < 9;
+        const through = Math.abs(u - s.u) < 2.6 && Math.abs(sv - s.s) < 9;
         // The nearer the slide, the more of them and the bigger.
         const shown = i < 4 + 12 * presence;
         dummy.scale.setScalar(through || !shown ? 0 : size * (0.55 + 0.4 * presence) * Math.min(1, (85 - ahead) / 20));
@@ -383,7 +442,8 @@ export class Juice {
         for (let n = 0; n < 3; n++)
           if (Math.random() < near * near * 1.2) {
             const side = Math.random() < 0.5 ? -1 : 1;
-            this.burst(s.x + side * (2.5 + Math.random() * 13), snowHeight(s.z) + 0.4 + Math.random() * 3, s.z - 9 + Math.random() * 6, "#ffffff", 2, 3, s.speed + 10 + Math.random() * 16);
+            const p = trailAt(trail, s.s - 9 + Math.random() * 6, s.u + side * (2.5 + Math.random() * 13));
+            this.burst(p.x, surfaceHeight(course, p.x, p.z) + 0.4 + Math.random() * 3, p.z, "#ffffff", 2, 3, s.speed + 10 + Math.random() * 16, p.dir);
           }
     }
     this.shake *= Math.exp(-7 * dt);

@@ -1,5 +1,6 @@
 import type { Coin, Gate, Hazard, MoverKind, PowerKind, PowerSpot, Stretch, TokenSpot, Twist, Weather, Zone } from "./levels";
-import { SNOWCAT_LEAD, SNOWCAT_REACH, SNOWCAT_SPEED, type MoverSpec } from "./movers";
+import type { MoverSpec } from "./movers";
+import { trailAt, trailHalf, type Trail } from "./trail";
 
 /**
  * What a level has beyond flags and rock, as authored: each list names the
@@ -12,30 +13,32 @@ export interface ExtrasDesign {
   coins: number[];
   /** Stretches with a jump on the racing line and coins hung in the air beyond it. A rock on the line is what it jumps. */
   ramps: number[];
+  /** Stretches crossed by a chasm: the whole piste kicks up into a lip, and everyone flies. */
+  chasms: number[];
   /** Stretches glazed with ice from just past the gate to just short of the next. */
   ice: number[];
   /** Power-ups floating on the racing line: the stretch and what it holds. */
   powers: [stretch: number, kind: PowerKind][];
-  /**
-   * Things that move: the stretch where the skier meets it, what it is, where
-   * across the slope (for a deer, where it stops to stare; left out, the
-   * racing line) and which way it first goes (left out, toward the next gate).
-   */
-  movers: [stretch: number, kind: MoverKind, x?: number, dir?: 1 | -1][];
+  /** Things that move: the stretch where the skier meets it, what it is, and which way it first goes (left out, toward the next gate). */
+  movers: [stretch: number, kind: MoverKind, dir?: 1 | -1][];
   /** A level with its own rule: a race against the fox, a run from an avalanche, a slope of gold. */
   twist: Twist;
   weather: Weather;
+  /** A night run. */
+  night: boolean;
   rivalPace: number;
   avalanchePace: number;
 }
 export const EXTRAS_BASE: ExtrasDesign = {
   coins: [],
   ramps: [],
+  chasms: [],
   ice: [],
   powers: [],
   movers: [],
   twist: "",
   weather: "clear",
+  night: false,
   rivalPace: 0.9,
   avalanchePace: 0.86,
 };
@@ -50,15 +53,29 @@ export const DOUBLE_TIME = 8;
 export const POWER_REACH = 2.2;
 /** A ramp: this long and half this wide, with a lip this high. */
 export const RAMP_LENGTH = 7;
-export const RAMP_HALF = 2.4;
+export const RAMP_HALF = 1.9;
 export const RAMP_LIP = 1.1;
 /** A jump aims to carry about this far, for between these times in the air. */
 export const JUMP_REACH = 25;
 export const JUMP_MIN_TIME = 0.5;
 export const JUMP_MAX_TIME = 0.8;
 export const JUMP_GRAVITY = 22;
+/** A chasm is this long, and its lip throws a skier this far, for up to this long in the air. */
+export const CHASM_LENGTH = 20;
+export const CHASM_REACH = 36;
+export const CHASM_MAX_TIME = 1.15;
+/** Whatever went before, a skier leaves a chasm's lip at no less than this share of cruising speed. */
+export const CHASM_MIN_SPEED = 0.8;
+/** A lip this wide is the whole piste: the lip of a chasm. */
+export const FULL_WIDTH = 60;
+/** The kicker at the lip of a chasm is half this wide: it has to be aimed for. */
+export const LEAP_HALF = 4.2;
+/** Going into the gap costs this long before the skier is back on his skis on the far side. */
+export const CHASM_FALL_TIME = 1.7;
+/** Clearing a chasm with an avalanche behind drops this much of the slide into it. */
+export const CHASM_SWALLOW = 28;
 /** Points for landing a jump. */
-export const AIR_POINTS = 100;
+export const AIR_POINTS = 250;
 /** Above this height the skier clears rocks, trees, deer and learners. */
 export const CLEAR_HEIGHT = 0.9;
 /** A bullseye fires a carve boost: this much extra speed that fades over this long. Chained bullseyes keep it lit. */
@@ -76,130 +93,169 @@ export const ICE_TAIL = 12;
 /** Skimming a rock, tree or mover this closely without touching it pays this. */
 export const CLOSE_CALL_GAP = 1.0;
 export const CLOSE_CALL_POINTS = 50;
-/** A deer stops to stare this far short of the racing line. */
-export const DEER_STANDOFF = 6;
-/** A learner weaves about a lane this far off the racing line; a snowcat is this far off it when the skier arrives. */
-export const LEARNER_BERTH = 5;
-export const SNOWCAT_BERTH = 6.5;
-const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
 /** Beating the fox to the line pays this. */
 export const RIVAL_POINTS = 1000;
 
-/** The height of a ramp's snow above the piste at a point: a wedge that rises to its lip. */
-export function rampHeight(zones: readonly Zone[], x: number, z: number) {
+/** The height of a ramp's snow above the piste at trail coordinates: a wedge that rises to its lip. */
+export function rampHeight(zones: readonly Zone[], u: number, s: number) {
   for (const zone of zones) {
-    if (zone.kind !== "ramp" || z < zone.z || z > zone.z + zone.length + 0.6) continue;
-    const across = Math.abs(x - zone.x);
+    if (zone.kind !== "ramp" || s < zone.s || s > zone.s + zone.length + 0.6) continue;
+    const across = Math.abs(u - zone.u);
     if (across > zone.halfWidth) continue;
-    const along = Math.min(1, (z - zone.z) / zone.length);
+    const along = Math.min(1, (s - zone.s) / zone.length);
     // Rounded shoulders, so the wedge reads as packed snow rather than a box.
     const shoulder = Math.min(1, (zone.halfWidth - across) / 0.5);
-    return z > zone.z + zone.length ? 0 : RAMP_LIP * along * along * shoulder;
+    return s > zone.s + zone.length ? 0 : RAMP_LIP * along * along * shoulder;
   }
   return 0;
 }
-/** The zone of a kind under a point, if any. */
-export function zoneAt(zones: readonly Zone[], kind: Zone["kind"], x: number, z: number) {
+/** The zone of a kind under a point of the trail, if any. */
+export function zoneAt(zones: readonly Zone[], kind: Zone["kind"], u: number, s: number) {
   for (const zone of zones)
-    if (
-      zone.kind === kind &&
-      z >= zone.z &&
-      z <= zone.z + zone.length &&
-      Math.abs(x - zone.x) <= zone.halfWidth
-    )
+    if (zone.kind === kind && s >= zone.s && s <= zone.s + zone.length && Math.abs(u - zone.u) <= zone.halfWidth) {
+      if (zone.blobs && !zone.blobs.some((b) => Math.hypot(b.s - s, b.u - u) <= b.r)) continue;
       return zone;
+    }
   return undefined;
 }
 /** How long a jump launched at a speed stays in the air, and the upward speed that gives it. */
-export function jumpFor(speed: number) {
-  const time = Math.max(JUMP_MIN_TIME, Math.min(JUMP_MAX_TIME, JUMP_REACH / Math.max(1, speed)));
+export function jumpFor(speed: number, chasm = false) {
+  const time = Math.max(
+    JUMP_MIN_TIME,
+    Math.min(chasm ? CHASM_MAX_TIME : JUMP_MAX_TIME, (chasm ? CHASM_REACH : JUMP_REACH) / Math.max(1, speed)),
+  );
   return { time, vy: ((JUMP_GRAVITY / 2) * time * time - RAMP_LIP) / time };
 }
 
 const round = (n: number) => Math.round(n * 10) / 10;
 
-/** Places a level's coins, zones, power-ups and movers from its authored lists. */
+/**
+ * A sheet of ice down a stretch that starts at a gate and runs this long: patches strung down the racing line,
+ * each a different size and a little to one side or the other of it, running into one another here and leaving
+ * a tongue of snow between them there. The same stretch and seed always give the same sheet.
+ */
+export function iceSheet(trail: Trail, fromS: number, length: number, lineAt: (s: number) => number, seedOf: number): Zone {
+  const s = fromS + ICE_LEAD,
+    span = length - ICE_LEAD - ICE_TAIL;
+  const blobs: { s: number; u: number; r: number }[] = [];
+  let seed = (seedOf * 2654435761) >>> 0;
+  const roll = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  for (let at = s + 5; at < s + span - 3; ) {
+    const r = 4.2 + roll() * 3.4;
+    const u = lineAt(at) + (roll() - 0.5) * 6;
+    blobs.push({ s: round(at), u: round(u), r: round(r) });
+    // More often than not another patch lies beside it, to one side or the other, and sometimes one on each.
+    for (const side of [-1, 1])
+      if (roll() < 0.6) {
+        const beside = 3.4 + roll() * 2.6;
+        blobs.push({ s: round(at + (roll() - 0.5) * 6), u: round(u + side * (r + beside * (0.5 + roll() * 0.7))), r: round(beside) });
+      }
+    at += r * (0.75 + roll() * 0.6);
+  }
+  // No patch lies out in the deep snow: each is drawn back onto the trail.
+  for (const b of blobs) {
+    const room = Math.max(0, trailHalf(trail, b.s) - b.r * 0.6);
+    b.u = round(Math.max(-room, Math.min(room, b.u)));
+  }
+  const lo = Math.min(...blobs.map((b) => b.u - b.r)),
+    hi = Math.max(...blobs.map((b) => b.u + b.r));
+  const first = Math.min(...blobs.map((b) => b.s - b.r)),
+    end = Math.max(...blobs.map((b) => b.s + b.r));
+  const p = trailAt(trail, first, (lo + hi) / 2);
+  return { kind: "ice", s: first, u: (lo + hi) / 2, halfWidth: (hi - lo) / 2, length: end - first, x: p.x, z: p.z, rot: p.dir, blobs };
+}
+
+/**
+ * Places a level's coins, zones, power-ups and movers from its authored
+ * lists. Coins run down the direct line from gate to gate; what moves is put
+ * on that line or across it, never politely beside it.
+ */
 export function buildExtras(
   design: ExtrasDesign,
+  trail: Trail,
   gates: readonly Gate[],
   stretches: readonly Stretch[],
   tokens: readonly TokenSpot[],
   hazards: readonly Hazard[],
-  finishZ: number,
+  finishS: number,
   speed: number,
 ) {
   const coins: Coin[] = [],
     zones: Zone[] = [],
     powers: PowerSpot[] = [],
     movers: MoverSpec[] = [];
+  void stretches;
   const ends = (index: number) => {
     const from = gates[index],
-      to = gates[index + 1] ?? { x: gates[index].x * 0.4, z: finishZ - 20 };
-    return { from, to, length: to.z - from.z };
+      to = gates[index + 1] ?? { u: gates[index].u * 0.4, s: finishS - 20 };
+    return { from, to, length: to.s - from.s };
   };
-  const lineX = (index: number, z: number) => {
+  const lineU = (index: number, s: number) => {
     const { from, to, length } = ends(index);
-    return from.x + ((to.x - from.x) * (z - from.z)) / length;
+    return from.u + ((to.u - from.u) * (s - from.s)) / length;
+  };
+  const coin = (u: number, s: number, y = 0) => coins.push({ ...trailAt(trail, s, u), s: round(s), u: round(u), y });
+  const zone = (kind: Zone["kind"], s: number, u: number, halfWidth: number, length: number) => {
+    const p = trailAt(trail, s, u);
+    zones.push({ kind, s, u, halfWidth, length, x: p.x, z: p.z, rot: p.dir });
   };
   /** Coins every few metres along a path, never on a rock. */
-  const trail = (points: [x: number, z: number][], spacing = 4.5) => {
+  const trailOf = (points: [u: number, s: number][], spacing = 4.5) => {
     for (let i = 0; i + 1 < points.length; i++) {
-      const [ax, az] = points[i],
-        [bx, bz] = points[i + 1];
-      const count = Math.max(1, Math.round((bz - az) / spacing));
+      const [au, as] = points[i],
+        [bu, bs] = points[i + 1];
+      const count = Math.max(1, Math.round((bs - as) / spacing));
       for (let k = 0; k < count; k++) {
         const f = k / count,
-          x = ax + (bx - ax) * f,
-          z = az + (bz - az) * f;
-        if (hazards.some((h) => Math.hypot(h.x - x, h.z - z) < h.radius + 1.6)) continue;
-        coins.push({ x: round(x), z: round(z), y: 0 });
+          u = au + (bu - au) * f,
+          s = as + (bs - as) * f;
+        if (hazards.some((h) => Math.hypot(h.u - u, h.s - s) < h.radius + 1.6)) continue;
+        coin(u, s);
       }
     }
   };
-  const rampAt = new Map<number, Zone>();
   for (const index of design.ramps) {
     const { from, length } = ends(index);
-    // The lip sits 9 m short of a rock on the line, or 30% of the way along.
-    const rock = hazards.find(
-      (h) => h.z > from.z + 18 && h.z < from.z + length - 8 && Math.abs(h.x - lineX(index, h.z)) < 1.5,
-    );
-    const lip = rock ? rock.z - 8 : from.z + Math.max(16, length * 0.32);
-    const zone: Zone = {
-      kind: "ramp",
-      x: round(lineX(index, lip - RAMP_LENGTH / 2)),
-      z: Math.round(lip - RAMP_LENGTH),
-      halfWidth: RAMP_HALF,
-      length: RAMP_LENGTH,
-    };
-    zones.push(zone);
-    rampAt.set(index, zone);
+    // The lip sits 8 m short of the first rock on or near the line, or a third of the way along.
+    const rock = hazards.find((h) => h.s > from.s + 14 && h.s < from.s + length - 8 && Math.abs(h.u - lineU(index, h.s)) < 2.4);
+    const lip = rock ? rock.s - 8 : from.s + Math.max(16, length * 0.32);
+    zone("ramp", Math.round(lip - RAMP_LENGTH), round(lineU(index, lip - RAMP_LENGTH / 2)), RAMP_HALF, RAMP_LENGTH);
     // Coins hang along the flight of a jump taken at cruising speed down the line.
     const { time, vy } = jumpFor(speed);
     for (let k = 1; k <= 5; k++) {
       const t = (time * k) / 6,
-        z = lip + speed * t;
-      coins.push({
-        x: round(lineX(index, z)),
-        z: round(z),
-        y: round(RAMP_LIP + vy * t - (JUMP_GRAVITY / 2) * t * t),
-      });
+        s = lip + speed * t;
+      coin(lineU(index, s), s, round(RAMP_LIP + vy * t - (JUMP_GRAVITY / 2) * t * t));
+    }
+  }
+  for (const index of design.chasms) {
+    const { from, length } = ends(index);
+    // A long clear run-up, then the lip; the far side has room to land before the flags.
+    const lip = Math.round(from.s + Math.max(24, length * 0.42));
+    // One kicker on the racing line throws the skier across; either side of it the snow simply ends.
+    zone("ramp", lip - RAMP_LENGTH, round(lineU(index, lip)), LEAP_HALF, RAMP_LENGTH);
+    zones[zones.length - 1].leap = true;
+    zone("chasm", lip, 0, FULL_WIDTH, CHASM_LENGTH);
+    const { time, vy } = jumpFor(speed, true);
+    for (let k = 1; k <= 6; k++) {
+      const t = (time * k) / 7,
+        s = lip + speed * t;
+      coin(lineU(index, s), s, round(RAMP_LIP + vy * t - (JUMP_GRAVITY / 2) * t * t));
     }
   }
   for (const index of design.ice) {
     const { from, length } = ends(index);
-    const z = from.z + ICE_LEAD,
-      span = length - ICE_LEAD - ICE_TAIL;
-    zones.push({ kind: "ice", x: round(lineX(index, z + span / 2)), z, halfWidth: ICE_HALF, length: span });
+    zones.push(iceSheet(trail, from.s, length, (s) => lineU(index, s), index));
   }
   const paved = design.twist === "goldrush";
   for (const index of design.coins) {
     const { from, to, length } = ends(index);
     if (paved) {
       for (const offset of [-1.6, 1.6])
-        trail(
+        trailOf(
           [
-            [lineX(index, from.z + length * 0.2) + offset, from.z + length * 0.2],
-            [lineX(index, to.z - length * 0.2) + offset, to.z - length * 0.2],
+            [lineU(index, from.s + length * 0.2) + offset, from.s + length * 0.2],
+            [lineU(index, to.s - length * 0.2) + offset, to.s - length * 0.2],
           ],
           3.2,
         );
@@ -208,47 +264,57 @@ export function buildExtras(
     const token = tokens.find((t) => t.stretch === index);
     if (token)
       // Out to the gold and back: the trail shows the wide line.
-      trail([
-        [from.x + (token.x - from.x) * 0.3, from.z + (token.z - from.z) * 0.3],
-        [token.x - (token.x - from.x) * 0.12, token.z - 4.5],
+      trailOf([
+        [from.u + (token.u - from.u) * 0.3, from.s + (token.s - from.s) * 0.3],
+        [token.u - (token.u - from.u) * 0.12, token.s - 4.5],
       ]);
     else
-      trail([
-        [lineX(index, from.z + length * 0.28), from.z + length * 0.28],
-        [lineX(index, to.z - length * 0.24), to.z - length * 0.24],
+      trailOf([
+        [lineU(index, from.s + length * 0.28), from.s + length * 0.28],
+        [lineU(index, to.s - length * 0.24), to.s - length * 0.24],
       ]);
   }
   for (const [index, kind] of design.powers) {
     const { from, length } = ends(index);
-    const z = Math.round(from.z + length * 0.55);
+    const s = Math.round(from.s + length * 0.55);
     // On the racing line, or beside the rock if one sits there.
-    let x = lineX(index, z);
-    const rock = hazards.find((h) => Math.hypot(h.x - x, h.z - z) < h.radius + 2.6);
-    if (rock) x = rock.x + (Math.sign(x - rock.x) || Math.sign(from.x) || 1) * (rock.radius + 3);
-    powers.push({ kind, x: round(x), z });
+    let u = lineU(index, s);
+    const rock = hazards.find((h) => Math.hypot(h.u - u, h.s - s) < h.radius + 2.6);
+    if (rock) u = rock.u + (Math.sign(u - rock.u) || Math.sign(from.u) || 1) * (rock.radius + 3);
+    powers.push({ kind, ...trailAt(trail, s, u), s, u: round(u) });
   }
-  for (const [index, kind, x, dir] of design.movers) {
+  // The racing line, gate to gate: what a learner or the herd works about.
+  const line = [{ s: 0, u: gates[0].u * 0.5 }, ...gates.map((gate) => ({ s: gate.s, u: gate.u })), { s: finishS, u: 0 }];
+  let herd = 0;
+  for (const [index, kind, dir] of design.movers) {
     const { from, to, length } = ends(index);
-    const z = Math.round(from.z + length * (kind === "deer" ? 0.6 : 0.5));
-    const toward = (dir ?? (Math.sign(to.x - from.x) || 1)) as 1 | -1;
-    // Left to itself, a mover is placed so that a skier who holds the racing
-    // line at cruising speed goes by it untouched, but only just: a deer stops
-    // short of the line to stare and bolts across it early; a snowcat has just
-    // crawled off the line when the skier arrives; a learner wobbles beside it.
-    const line = lineX(index, z);
-    let lane = line,
-      way = toward;
-    if (kind === "deer") lane = line - toward * DEER_STANDOFF;
-    else if (kind === "skier") lane = line - toward * LEARNER_BERTH;
-    else if (x === undefined) {
-      way = -toward as 1 | -1;
-      lane = clamp(line - toward * (SNOWCAT_BERTH - (SNOWCAT_SPEED * SNOWCAT_LEAD) / speed), -SNOWCAT_REACH, SNOWCAT_REACH);
-    }
-    movers.push({ kind, z, x: x ?? round(lane), dir: x === undefined ? way : toward });
+    // Whatever blocks the line stands well down its stretch: there is room after the flags to see it and choose a side.
+    const at = kind === "deer" ? 0.6 : kind === "plough" || kind === "boulder" ? 0.45 : 0.5;
+    const s = Math.round(from.s + length * at);
+    const toward = (dir ?? (Math.sign(to.u - from.u) || 1)) as 1 | -1;
+    const spec: MoverSpec = { kind, s, u: 0, dir: toward };
+    if (kind === "skier") {
+      // A learner traverses about the middle of the trail, whatever the flags do.
+    } else if (kind === "herd") {
+      // The herd runs three abreast, more or less, and each jinks about its own lane.
+      // Each keeps a lane of its own about the middle of the trail, whatever the flags do.
+      spec.u = [-4.5, 4.5, 0][herd++ % 3];
+    } else if (kind !== "snowcat") spec.u = round(lineU(index, s));
+    movers.push(spec);
   }
-  coins.sort((a, b) => a.z - b.z);
-  zones.sort((a, b) => a.z - b.z);
-  powers.sort((a, b) => a.z - b.z);
-  movers.sort((a, b) => a.z - b.z);
+  // The far side of a fork is the one with the gold in it.
+  for (const gate of gates)
+    if (gate.alt !== undefined)
+      trailOf(
+        [
+          [gate.alt, gate.s - 16],
+          [gate.alt, gate.s + 6],
+        ],
+        3.6,
+      );
+  coins.sort((a, b) => a.s - b.s);
+  zones.sort((a, b) => a.s - b.s);
+  powers.sort((a, b) => a.s - b.s);
+  movers.sort((a, b) => a.s - b.s);
   return { coins, zones, powers, movers };
 }

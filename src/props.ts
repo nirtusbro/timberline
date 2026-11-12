@@ -1,9 +1,12 @@
 import * as THREE from "three";
 import { box, cone, cylinder, material, shape, sphere } from "./geometry";
-import { snowHeight, surfaceHeight, type Course, type Run } from "./physics";
+import { surfaceHeight, type Course, type Run } from "./physics";
 import { RAMP_LIP } from "./extras";
-import { DEER_EDGE, DEER_STARE_TIME, DEER_TROT_TIME, SNOWCAT_REACH, type MoverKind, type MoverState } from "./movers";
-import type { PowerKind, Zone } from "./levels";
+import { BOULDER_FALL_TIME, SNOWCAT_MARGIN, type MoverKind, type MoverState } from "./movers";
+import { SHOULDER, type PowerKind, type Zone } from "./levels";
+import { trailAt, trailHalf } from "./trail";
+import { layOnSnow, ribbon, snowTilt } from "./terrain";
+import { lamp, lampMode } from "./lamp";
 
 /** The colour each power-up wears everywhere: on the slope, in the HUD, in the effects. */
 export const POWER_COLORS: Record<PowerKind, string> = {
@@ -12,7 +15,7 @@ export const POWER_COLORS: Record<PowerKind, string> = {
   double: "#a45cff",
 };
 const COIN_POOL = 220;
-const AHEAD = 240;
+const AHEAD = 300;
 const dummy = new THREE.Object3D();
 const basic = (color: string, opacity = 1) =>
   new THREE.MeshBasicMaterial({
@@ -86,6 +89,14 @@ export function paintPowerIcon(ctx: CanvasRenderingContext2D, kind: PowerKind, s
 // ------------------------------------------------------------------ models
 
 const LEARNER_SUITS = ["#ffb300", "#ff6f91", "#3ecf8e", "#5aa9ff", "#c77dff"];
+/** Reflective tape, and the back of an animal's eye: dull by day, and by night bright in the beam of a lamp and nowhere else. */
+const reflective = lampMode(new THREE.MeshLambertMaterial({ color: "#e9eef2" }), { retro: 4, facing: 0 }),
+  eyeShine = lampMode(new THREE.MeshLambertMaterial({ color: "#3a2a1c" }), { retro: 40, facing: 0 }),
+  paleCoat = lampMode(new THREE.MeshLambertMaterial({ color: "#e9d6b8" }), { retro: 1.2 });
+/** A lamp that is lit: it shows whatever the light on it. */
+const lit = (color: string) => lampMode(basic(color), { source: true });
+const BEACON = new THREE.Color("#ffb020"),
+  HEADLIGHT = new THREE.Color("#fff1c4");
 /** A learner: a small hare in a bright bib, skis in a snowplough, arms out for balance. */
 function learner(index: number) {
   const g = new THREE.Group();
@@ -107,6 +118,8 @@ function learner(index: number) {
   }
   shape(body, sphere, suit, [0, 0.9, 0], [0.36, 0.44, 0.3]);
   shape(body, box, material("#ffffff"), [0, 0.95, 0.27], [0.3, 0.26, 0.03]);
+  // A reflective patch on the back of the bib, which is the side a faster skier sees.
+  shape(body, box, reflective, [0, 0.98, -0.29], [0.36, 0.3, 0.03]);
   const head = new THREE.Group();
   head.name = "head";
   head.position.set(0, 1.45, 0.03);
@@ -127,7 +140,7 @@ function learner(index: number) {
 function deer() {
   const g = new THREE.Group();
   const coat = material("#a9744a"),
-    belly = material("#e9d6b8"),
+    belly = paleCoat,
     dark = material("#4a3324"),
     antler = material("#e8dcc4");
   const body = new THREE.Group();
@@ -161,7 +174,7 @@ function deer() {
   shape(head, sphere, coat, [0, 0, 0.08], [0.2, 0.2, 0.32]);
   shape(head, sphere, dark, [0, -0.04, 0.4], [0.08, 0.07, 0.07]);
   for (const side of [-1, 1]) {
-    shape(head, sphere, dark, [side * 0.16, 0.06, 0.16], [0.04, 0.05, 0.04]);
+    shape(head, sphere, eyeShine, [side * 0.16, 0.06, 0.16], [0.05, 0.06, 0.05]);
     shape(head, sphere, coat, [side * 0.24, 0.16, -0.08], [0.13, 0.07, 0.05], [0, 0, side * 0.5]);
     shape(head, cylinder, antler, [side * 0.14, 0.42, -0.06], [0.03, 0.55, 0.03], [0, 0, -side * 0.35]);
     shape(head, cylinder, antler, [side * 0.27, 0.5, -0.06], [0.025, 0.28, 0.025], [0, 0, -side * 1.1]);
@@ -189,15 +202,15 @@ function snowcat() {
   for (const side of [-1, 1]) shape(g, box, glass, [side * 0.81, 1.95, 0.35], [0.05, 0.6, 1.1]);
   shape(g, box, steel, [0, 0.45, 2.45], [3.3, 0.9, 0.16], [0.25, 0, 0]);
   shape(g, box, steel, [0, 0.25, -2.3], [3.1, 0.12, 0.7]);
-  const beacon = shape(g, sphere, basic("#ffb020"), [0, 2.5, 0.2], [0.2, 0.2, 0.2]);
+  const beacon = shape(g, sphere, lit("#ffb020"), [0, 2.5, 0.2], [0.2, 0.2, 0.2]);
   beacon.name = "beacon";
   const halo = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: glowTexture(), color: "#ffb020", transparent: true, depthWrite: false, toneMapped: false }),
+    lampMode(new THREE.SpriteMaterial({ map: glowTexture(), color: "#ffb020", transparent: true, depthWrite: false, toneMapped: false }), { source: true }),
   );
   halo.name = "halo";
   halo.position.set(0, 2.5, 0.2);
   g.add(halo);
-  for (const side of [-1, 1]) shape(g, sphere, basic("#fff6c9"), [side * 0.6, 1.25, 1.36], [0.14, 0.14, 0.05]);
+  for (const side of [-1, 1]) shape(g, sphere, lit("#fff6c9"), [side * 0.6, 1.25, 1.36], [0.14, 0.14, 0.05]);
   return g;
 }
 let glow: THREE.Texture | undefined;
@@ -210,6 +223,52 @@ function glowTexture() {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 64, 64);
   }));
+}
+/** A boulder off the gorge wall, and the ring on the snow that says where it will land. */
+function boulder() {
+  const g = new THREE.Group();
+  const rock = new THREE.Group();
+  rock.name = "rock";
+  shape(rock, new THREE.IcosahedronGeometry(1, 0), material("#7b7088"), [0, 0, 0], [1.5, 1.3, 1.4]);
+  g.add(rock);
+  const flat = (geo: THREE.BufferGeometry, color: string, opacity: number, y: number) => {
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
+    );
+    m.position.y = y;
+    m.renderOrder = 2;
+    return m;
+  };
+  const ring = new THREE.Group();
+  ring.name = "ring";
+  ring.add(flat(new THREE.RingGeometry(1.7, 2.4, 36), "#ffd400", 1, 0.09));
+  ring.add(flat(new THREE.RingGeometry(2.4, 2.65, 36), "#14263d", 1, 0.09));
+  const shadow = flat(new THREE.CircleGeometry(1.5, 28), "#14263d", 0.6, 0.08);
+  shadow.name = "shadow";
+  g.add(ring, shadow);
+  return g;
+}
+/** A chasm: the trail simply stops, and starts again on the far side of a dark drop. */
+function chasm(course: Course, zone: Zone, floor: THREE.Material, wall: THREE.Material) {
+  // The drop itself is cut into the mountain (see the terrain); here are only its markers.
+  const g = new THREE.Group();
+  const trail = course.trail;
+  void floor;
+  void wall;
+  // Tall hazard posts at the four corners, so the gap is known for what it is from far up the slope.
+  const post = lampMode(basic("#ffd400"), { retro: 2.5, facing: 0 }),
+    stripe = basic("#14263d");
+  for (const s of [zone.s, zone.s + zone.length])
+    for (const side of [-1, 1]) {
+      const p = trailAt(trail, s, side * (trailHalf(trail, s) - 3.5)),
+        y = surfaceHeight(course, p.x, p.z);
+      shape(g, cylinder, post, [p.x, y + 2.6, p.z], [0.16, 5.2, 0.16]);
+      for (const h of [1.2, 2.6, 4]) shape(g, cylinder, stripe, [p.x, y + h, p.z], [0.17, 0.5, 0.17]);
+      shape(g, cone, post, [p.x, y + 5.7, p.z], [0.7, 1, 0.7]);
+    }
+  return g;
 }
 /** A floating power-up: its badge in a bubble, turning, with a pool of its colour on the snow. */
 function powerUp(kind: PowerKind) {
@@ -238,7 +297,7 @@ function powerUp(kind: PowerKind) {
       toneMapped: false,
     }),
   );
-  pool.rotation.x = -Math.PI / 2 + 0.1;
+  pool.rotation.x = -Math.PI / 2 + 0.2;
   pool.name = "pool";
   g.add(pool);
   return g;
@@ -246,57 +305,106 @@ function powerUp(kind: PowerKind) {
 
 // ------------------------------------------------------------------ zones
 
-/** A strip of snow-hugging plane between two distances, textured edge to edge. */
-function decal(x: number, from: number, to: number, halfWidth: number, mat: THREE.Material, lift = 0.03, course?: Course) {
-  const segments = Math.max(1, Math.ceil((to - from) / 2));
-  const geo = new THREE.PlaneGeometry(halfWidth * 2, to - from, 4, segments);
-  geo.rotateX(-Math.PI / 2);
-  geo.translate(x, 0, (from + to) / 2);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++)
-    pos.setY(i, (course ? surfaceHeight(course, pos.getX(i), pos.getZ(i)) : snowHeight(pos.getZ(i))) + lift);
-  const m = new THREE.Mesh(geo, mat);
-  m.renderOrder = 1;
-  return m;
+/**
+ * A sheet of ice as it lies on a slope: a scatter of rounded patches that run into one another, each with a ragged
+ * edge and a pale rim of wind-packed snow, drawn exactly where the skis will find it slick.
+ */
+function icePatches(course: Course, zone: Zone, glaze: THREE.Material, rim: THREE.Material, sheen: THREE.Material) {
+  const group = new THREE.Group();
+  const trail = course.trail;
+  for (const [k, blob] of (zone.blobs ?? []).entries()) {
+    for (const [layer, material, grow, lift] of [
+      [0, rim, 1.09, 0.036],
+      [1, glaze, 1, 0.046],
+      // A pale sheen on the up-slope half of each patch: the sky in it.
+      [2, sheen, 0.5, 0.054],
+    ] as const) {
+      const positions: number[] = [],
+        uvs: number[] = [],
+        index: number[] = [];
+      const ring = 30;
+      const at = (s: number, u: number) => {
+        const p = trailAt(trail, s, u);
+        positions.push(p.x, surfaceHeight(course, p.x, p.z) + lift, p.z);
+      };
+      const cs = layer === 2 ? blob.s - blob.r * 0.3 : blob.s;
+      at(cs, blob.u);
+      uvs.push(0.5 + blob.u / 11, 0.5 + cs / 11);
+      for (let i = 0; i < ring; i++) {
+        const a = (i / ring) * Math.PI * 2;
+        // The edge wanders in and out a little, differently on every patch.
+        const wobble = 1 + 0.1 * Math.sin(a * 3 + k * 1.7) + 0.06 * Math.sin(a * 5 + k * 0.9);
+        const r = blob.r * grow * wobble;
+        at(cs + Math.cos(a) * r * (layer === 2 ? 0.6 : 1), blob.u + Math.sin(a) * r);
+        // The glaze is mapped by where it lies on the slope, so its streaks run on from patch to patch.
+        uvs.push(0.5 + (Math.sin(a) * r + blob.u) / 11, 0.5 + (Math.cos(a) * r + blob.s) / 11);
+        index.push(0, 1 + i, 1 + ((i + 1) % ring));
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(index);
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = layer;
+      group.add(mesh);
+    }
+  }
+  return group;
 }
-const iceTexture = () =>
-  canvasTexture(256, (ctx) => {
-    // Hard blue ice: soft-edged, streaked with scratches and a few bright glints.
-    const g = ctx.createLinearGradient(0, 0, 256, 256);
-    g.addColorStop(0, "#a8dcf7");
-    g.addColorStop(0.5, "#7fc6ee");
-    g.addColorStop(1, "#b6e6fb");
-    ctx.fillStyle = g;
+const iceTexture = () => {
+  const texture = canvasTexture(256, (ctx) => {
+    // Clear hard ice: deep blue where the snow has been scoured off it, paler where a skin of frost is left.
+    ctx.fillStyle = "#58b4ea";
     ctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 22; i++) {
+      const x = (i * 89) % 256,
+        y = (i * 151) % 256,
+        r = 26 + ((i * 37) % 44);
+      for (const [ox, oy] of [[0, 0], [256, 0], [-256, 0], [0, 256], [0, -256]]) {
+        const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        g.addColorStop(0, i % 3 ? "rgba(190,232,255,.75)" : "rgba(22,104,186,.8)");
+        g.addColorStop(1, "rgba(150,215,250,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+    // Long pale streaks down the slope, where the wind has polished it, and a few hairline cracks across.
     ctx.lineCap = "round";
-    for (let i = 0; i < 46; i++) {
-      const x = (i * 97) % 256,
-        y = (i * 53) % 256,
-        len = 18 + ((i * 31) % 50);
-      ctx.strokeStyle = i % 3 ? "rgba(255,255,255,.55)" : "rgba(70,140,190,.35)";
-      ctx.lineWidth = i % 5 === 0 ? 3 : 1.5;
+    for (let i = 0; i < 34; i++) {
+      const x = (i * 61) % 256,
+        y = (i * 113) % 256,
+        len = 40 + ((i * 29) % 90);
+      ctx.strokeStyle = "rgba(245,252,255," + (0.5 + (i % 4) * 0.12) + ")";
+      ctx.lineWidth = 2 + (i % 3) * 1.5;
+      for (const oy of [0, -256]) {
+        ctx.beginPath();
+        ctx.moveTo(x, y + oy);
+        ctx.lineTo(x + ((i % 5) - 2) * 3, y + oy + len);
+        ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = "rgba(10,62,124,.8)";
+    ctx.lineWidth = 2.2;
+    for (let i = 0; i < 7; i++) {
+      let x = (i * 43) % 256,
+        y = (i * 97) % 256;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + ((i % 7) - 3) * 2, y + len);
+      for (let k = 0; k < 5; k++) {
+        x += 14 + ((i + k) % 3) * 9;
+        y += ((i * 7 + k * 5) % 21) - 10;
+        ctx.lineTo(x, y);
+      }
       ctx.stroke();
     }
-    // Fade the rim so the sheet melts into the snow.
-    ctx.globalCompositeOperation = "destination-in";
-    const rim = ctx.createLinearGradient(0, 0, 256, 0);
-    rim.addColorStop(0, "rgba(0,0,0,0)");
-    rim.addColorStop(0.1, "rgba(0,0,0,1)");
-    rim.addColorStop(0.9, "rgba(0,0,0,1)");
-    rim.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = rim;
-    ctx.fillRect(0, 0, 256, 256);
-    const ends = ctx.createLinearGradient(0, 0, 0, 256);
-    ends.addColorStop(0, "rgba(0,0,0,0)");
-    ends.addColorStop(0.06, "rgba(0,0,0,1)");
-    ends.addColorStop(0.94, "rgba(0,0,0,1)");
-    ends.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = ends;
-    ctx.fillRect(0, 0, 256, 256);
+    // Glints.
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    for (let i = 0; i < 16; i++) ctx.fillRect((i * 71) % 256, (i * 131) % 256, 4, 4);
   });
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+};
 const rampTexture = () =>
   canvasTexture(128, (ctx) => {
     ctx.fillStyle = "#f4f9ff";
@@ -315,6 +423,12 @@ const rampTexture = () =>
     ctx.fillStyle = "#ff7a1a";
     ctx.fillRect(0, 0, 128, 7);
   });
+/** The lip of a chasm: packed snow with an orange edge and arrows, tiled across the whole trail. */
+const lipTexture = () => {
+  const t = rampTexture();
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
+};
 const bandTexture = (color: string, mark: (ctx: CanvasRenderingContext2D) => void) =>
   canvasTexture(256, (ctx) => {
     ctx.fillStyle = color;
@@ -329,12 +443,15 @@ const bandTexture = (color: string, mark: (ctx: CanvasRenderingContext2D) => voi
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 256, 64);
   }, 64);
-/** A ramp: a wedge of packed snow rising to an orange lip, with a pole either side. */
-function ramp(zone: Zone, top: THREE.Material, side: THREE.Material, pole: THREE.Material) {
+/** A ramp: a wedge of packed snow rising to an orange lip, with a pole either side. It lies down the trail, tipped to the snow under it. */
+function ramp(course: Course, zone: Zone, top: THREE.Material, side: THREE.Material, pole: THREE.Material) {
   const g = new THREE.Group();
-  const w = zone.halfWidth,
+  // The lip of a chasm is as wide as the trail and its deep snow together.
+  const whole = false;
+  const w = whole ? trailHalf(course.trail, zone.s + zone.length) + SHOULDER + 2 : zone.halfWidth,
     l = zone.length,
-    steps = 8;
+    steps = 8,
+    tiles = whole ? Math.round(w / 3.3) : 1;
   const positions: number[] = [],
     uvs: number[] = [],
     index: number[] = [];
@@ -343,7 +460,7 @@ function ramp(zone: Zone, top: THREE.Material, side: THREE.Material, pole: THREE
     const t = i / steps,
       y = RAMP_LIP * t * t;
     positions.push(-w, y, t * l, w, y, t * l);
-    uvs.push(0, t, 1, t);
+    uvs.push(0, t, tiles, t);
     if (i < steps) {
       const a = i * 2;
       index.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
@@ -379,10 +496,8 @@ function ramp(zone: Zone, top: THREE.Material, side: THREE.Material, pole: THREE
     shape(g, cylinder, pole, [sx * (w + 0.25), 1.2, l], [0.07, 2.4, 0.07]);
     shape(g, cone, pole, [sx * (w + 0.25), 2.75, l], [0.28, 0.5, 0.28], [Math.PI, 0, 0]);
   }
-  g.position.set(zone.x, snowHeight(zone.z + l / 2) + 0.02, zone.z);
-  // Tip the wedge to lie along the slope.
-  g.rotation.x = Math.atan2(snowHeight(zone.z) - snowHeight(zone.z + l), l);
-  g.position.y = snowHeight(zone.z) + 0.02;
+  // The wedge lies on the snow, pointing down the trail: a traverse tips it sideways as well as forward.
+  layOnSnow(g, course, zone.x, zone.z, zone.rot, 0.02);
   return g;
 }
 /** A roadside warning: a yellow diamond on a post. */
@@ -410,10 +525,16 @@ export class Props {
   private powerTakenAt: number[] = [];
   private movers: { model: THREE.Group; kind: MoverKind }[] = [];
   private materials = {
-    ice: new THREE.MeshBasicMaterial({ map: iceTexture(), transparent: true, opacity: 0.92, depthWrite: false, toneMapped: false }),
+    ice: new THREE.MeshBasicMaterial({ map: iceTexture(), transparent: true, opacity: 0.96, depthWrite: false, toneMapped: false }),
+    iceRim: new THREE.MeshBasicMaterial({ color: "#f4fbff", transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }),
+    iceSheen: new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.2, depthWrite: false, toneMapped: false }),
     rampTop: new THREE.MeshBasicMaterial({ map: rampTexture(), toneMapped: false, side: THREE.DoubleSide }),
     rampSide: new THREE.MeshBasicMaterial({ color: "#b9d2e8", toneMapped: false, side: THREE.DoubleSide }),
-    pole: basic("#ff7a1a"),
+    pole: lampMode(basic("#ff7a1a"), { retro: 2, facing: 0 }),
+    lipTop: new THREE.MeshBasicMaterial({ map: lipTexture(), toneMapped: false, side: THREE.DoubleSide }),
+    abyss: basic("#0a1226"),
+    abyssWall: new THREE.MeshBasicMaterial({ color: "#5d8fd6", toneMapped: false }),
+    rib: new THREE.LineBasicMaterial({ color: "#3f78c9", transparent: true, opacity: 0.75, toneMapped: false }),
     hoof: new THREE.MeshBasicMaterial({
       map: bandTexture("rgba(214,120,40,.62)", (ctx) => {
         // Hoofprints: pairs of dark dashes marching across.
@@ -464,12 +585,12 @@ export class Props {
     // A fat little coin; a paler disc on each face makes the spin read.
     const coinGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.12, 14);
     coinGeo.rotateX(Math.PI / 2);
-    this.coins = new THREE.InstancedMesh(coinGeo, basic("#f2a81d"), COIN_POOL);
+    this.coins = new THREE.InstancedMesh(coinGeo, lampMode(basic("#f2a81d"), { retro: 0.3, facing: 0 }), COIN_POOL);
     this.coins.frustumCulled = false;
     this.coins.count = 0;
     const faceGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.16, 14);
     faceGeo.rotateX(Math.PI / 2);
-    this.coinFaces = new THREE.InstancedMesh(faceGeo, basic("#ffe07a"), COIN_POOL);
+    this.coinFaces = new THREE.InstancedMesh(faceGeo, lampMode(basic("#ffe07a"), { retro: 0.3, facing: 0 }), COIN_POOL);
     this.coinFaces.frustumCulled = false;
     this.coinFaces.count = 0;
     scene.add(this.coins, this.coinFaces, this.statics);
@@ -479,6 +600,48 @@ export class Props {
     this.coinTakenAt.length = 0;
     this.powerTakenAt.length = 0;
   }
+  private laid = new WeakSet<object>();
+  /** Builds whatever stands on the course and has not been built yet: all of it for a level, the newest of it for an endless run. */
+  private lay(course: Course) {
+    const trail = course.trail;
+    for (const zone of course.zones) {
+      if (this.laid.has(zone)) continue;
+      this.laid.add(zone);
+      const piece =
+        zone.kind === "ice"
+          ? icePatches(course, zone, this.materials.ice, this.materials.iceRim, this.materials.iceSheen)
+          : zone.kind === "chasm"
+            ? chasm(course, zone, this.materials.abyss, this.materials.abyssWall)
+            : ramp(course, zone, zone.leap ? this.materials.lipTop : this.materials.rampTop, this.materials.rampSide, this.materials.pole);
+      piece.userData.s = zone.s + zone.length / 2;
+      this.statics.add(piece);
+    }
+    // The marks that warn of movers: a hoofprint trail where deer cross, a corduroy band where a snowcat works.
+    for (const spec of course.movers) {
+      if (this.laid.has(spec)) continue;
+      this.laid.add(spec);
+      if (spec.kind !== "deer" && spec.kind !== "snowcat") continue;
+      const deerHere = spec.kind === "deer";
+      const half = trailHalf(trail, spec.s),
+        reach = deerHere ? half + 3 : Math.max(3, half - SNOWCAT_MARGIN) + 2.5,
+        deep = deerHere ? 2.1 : 2.6;
+      if (!deerHere) {
+        const band = ribbon(course, spec.s - deep, spec.s + deep, () => -reach, () => reach, this.materials.cord, 0.045, 20);
+        band.userData.s = spec.s;
+        this.statics.add(band);
+      }
+      if (deerHere)
+        for (const side of [-1, 1]) {
+          // A warning sign at each edge of the trail, a little before the crossing, faced up the trail.
+          const p = trailAt(trail, spec.s - 3, side * (half - 1.5));
+          const s = sign(this.materials.signDeer, this.materials.post);
+          s.position.set(p.x, surfaceHeight(course, p.x, p.z), p.z);
+          s.rotation.y = p.dir;
+          s.userData.s = spec.s;
+          this.statics.add(s);
+        }
+    }
+  }
   private build(course: Course) {
     this.course = course;
     for (const child of [...this.statics.children]) {
@@ -487,43 +650,15 @@ export class Props {
         if (o instanceof THREE.Mesh) o.geometry.dispose();
       });
     }
-    for (const zone of course.zones) {
-      const piece =
-        zone.kind === "ice"
-          ? decal(zone.x, zone.z, zone.z + zone.length, zone.halfWidth, this.materials.ice, 0.03, course)
-          : ramp(zone, this.materials.rampTop, this.materials.rampSide, this.materials.pole);
-      piece.userData.z = zone.z + zone.length / 2;
-      this.statics.add(piece);
-    }
-    // The marks that warn of movers: a hoofprint trail where deer cross, a corduroy band where a snowcat works.
-    for (const spec of course.movers) {
-      if (spec.kind === "skier") continue;
-      const deerHere = spec.kind === "deer";
-      const half = deerHere ? DEER_EDGE : SNOWCAT_REACH + 2.5;
-      const band = new THREE.PlaneGeometry(half * 2, deerHere ? 4.2 : 5.2, 20, 1);
-      band.rotateX(-Math.PI / 2);
-      const pos = band.attributes.position;
-      for (let i = 0; i < pos.count; i++)
-        pos.setY(i, surfaceHeight(course, pos.getX(i), spec.z + pos.getZ(i)) - snowHeight(spec.z) + 0.035);
-      const mesh = new THREE.Mesh(band, deerHere ? this.materials.hoof : this.materials.cord);
-      mesh.position.set(0, snowHeight(spec.z), spec.z);
-      mesh.renderOrder = 1;
-      mesh.userData.z = spec.z;
-      this.statics.add(mesh);
-      if (deerHere)
-        for (const side of [-1, 1]) {
-          const s = sign(this.materials.signDeer, this.materials.post);
-          s.position.set(side * 15.5, snowHeight(spec.z - 3), spec.z - 3);
-          s.userData.z = spec.z;
-          this.statics.add(s);
-        }
-    }
-    // Pooled models, enough of each kind for this course.
-    const need = (kind: MoverKind) => course.movers.filter((m) => m.kind === kind).length;
-    for (const kind of ["skier", "deer", "snowcat"] as const) {
+    this.laid = new WeakSet();
+    this.lay(course);
+    // Pooled models, enough of each kind for this course; an endless one never has more than a few of a kind in sight.
+    const need = (kind: MoverKind) => (course.endless ? (kind === "herd" ? 6 : 4) : course.movers.filter((m) => m.kind === kind).length);
+    for (const kind of ["skier", "deer", "snowcat", "herd", "plough", "boulder"] as const) {
       const have = this.movers.filter((m) => m.kind === kind).length;
       for (let i = have; i < Math.min(8, need(kind)); i++) {
-        const model = kind === "skier" ? learner(i) : kind === "deer" ? deer() : snowcat();
+        const model =
+          kind === "skier" ? learner(i) : kind === "deer" || kind === "herd" ? deer() : kind === "boulder" ? boulder() : snowcat();
         model.visible = false;
         this.scene.add(model);
         this.movers.push({ model, kind });
@@ -542,19 +677,31 @@ export class Props {
   update(s: Run, time: number, playing: boolean) {
     const c = s.course;
     if (this.course !== c) this.build(c);
+    else if (c.endless) {
+      this.lay(c);
+      // And what is long behind is taken away again.
+      for (const child of [...this.statics.children])
+        if ((child.userData.s as number) < s.s - 160) {
+          this.statics.remove(child);
+          child.traverse((o) => {
+            if (o instanceof THREE.Mesh) o.geometry.dispose();
+          });
+        }
+    }
     this.statics.visible = playing;
     for (const child of this.statics.children) {
-      const at = child.userData.z as number;
-      child.visible = at > s.z - 60 && at < s.z + AHEAD + 40;
+      const at = child.userData.s as number,
+        span = (child.userData.span as number | undefined) ?? 0;
+      child.visible = at + span > s.s - 60 && at - span < s.s + AHEAD + 40;
     }
     // Coins: draw those in view, spinning; one just taken flies up to the skier and shrinks.
     if (this.coinCursor > c.coins.length) this.coinCursor = 0;
-    while (this.coinCursor > 0 && c.coins[this.coinCursor - 1].z >= s.z - 14) this.coinCursor--;
-    while (this.coinCursor < c.coins.length && c.coins[this.coinCursor].z < s.z - 14) this.coinCursor++;
+    while (this.coinCursor > 0 && c.coins[this.coinCursor - 1].s >= s.s - 14) this.coinCursor--;
+    while (this.coinCursor < c.coins.length && c.coins[this.coinCursor].s < s.s - 14) this.coinCursor++;
     let n = 0;
     const skierY = surfaceHeight(c, s.x, s.z) + s.y + 1;
     if (playing)
-      for (let i = this.coinCursor; i < c.coins.length && c.coins[i].z < s.z + AHEAD && n < COIN_POOL; i++) {
+      for (let i = this.coinCursor; i < c.coins.length && c.coins[i].s < s.s + AHEAD && n < COIN_POOL; i++) {
         const coin = c.coins[i];
         let x = coin.x,
           y = surfaceHeight(c, coin.x, coin.z) + coin.y + 0.95 + Math.sin(time * 3 + coin.z * 0.4) * 0.07,
@@ -591,7 +738,7 @@ export class Props {
     for (const p of this.powers) p.model.visible = false;
     if (playing)
       c.powers.forEach((spot, i) => {
-        if (spot.z < s.z - 12 || spot.z > s.z + AHEAD) return;
+        if (spot.s < s.s - 12 || spot.s > s.s + AHEAD) return;
         const k = (used[spot.kind] = (used[spot.kind] ?? 0) + 1);
         const p = this.powers.filter((q) => q.kind === spot.kind)[k - 1];
         if (!p) return;
@@ -611,7 +758,8 @@ export class Props {
         badge.scale.setScalar(1.7 * (1 + t * 0.8));
         (badge as THREE.Sprite).material.opacity = 1 - t;
         bubble.scale.setScalar(1.25 * (1 + Math.sin(time * 4 + i) * 0.04 + t * 1.2));
-        pool.position.y = 0.06;
+        pool.position.y = 0.09;
+        pool.rotation.x = -Math.PI / 2 + snowTilt(c.trail, spot.z);
         pool.visible = t === 0;
         pool.scale.setScalar(1 + Math.sin(time * 4 + i) * 0.08);
       });
@@ -620,7 +768,7 @@ export class Props {
     for (const m of this.movers) m.model.visible = false;
     if (playing)
       s.movers.forEach((m, i) => {
-        if (m.phase !== "active" || m.z < s.z - 25 || m.z > s.z + AHEAD) return;
+        if (m.phase !== "active" || m.s < s.s - 30 || m.s > s.s + AHEAD) return;
         const k = (count[m.kind] = (count[m.kind] ?? 0) + 1);
         const visual = this.movers.filter((q) => q.kind === m.kind)[k - 1];
         if (!visual) return;
@@ -628,16 +776,44 @@ export class Props {
         g.visible = true;
         g.position.set(m.x, surfaceHeight(c, m.x, m.z) + 0.02, m.z);
         if (m.kind === "skier") this.poseLearner(g, m, time, i);
+        else if (m.kind === "herd") {
+          g.scale.setScalar(1.3);
+          this.poseDeer(g, { ...m, pace: m.hit ? 0 : 2, t: 99 }, s, time + i);
+          if (m.hit) g.rotation.z = 1.4;
+        } else if (m.kind === "boulder") {
+          // It hangs over its ring, falls, and lands with the ring gone.
+          const fall = Math.min(1, m.t / BOULDER_FALL_TIME);
+          const rockMesh = g.getObjectByName("rock")!,
+            ring = g.getObjectByName("ring")!;
+          rockMesh.position.y = 1.1 + 34 * (1 - fall * fall);
+          rockMesh.rotation.set(fall * 5, fall * 3, 0);
+          ring.visible = fall < 1;
+          ring.scale.setScalar(1 + Math.sin(time * 14) * 0.08);
+          // Its shadow grows under it as it comes down.
+          const shadow = g.getObjectByName("shadow")!;
+          shadow.visible = fall < 1;
+          shadow.scale.setScalar(0.2 + fall * 0.9);
+          // Ring and shadow lie on the snow, which is steep.
+          ring.rotation.x = shadow.rotation.x = snowTilt(c.trail, m.z);
+        }
         else if (m.kind === "deer") {
           // Drawn larger than life, so it reads from a hundred metres up the slope.
           g.scale.setScalar(1.55);
           this.poseDeer(g, m, s, time);
         }
         else {
-          g.rotation.y = m.heading;
+          // A machine sits square on the snow, nose the way it is going.
+          layOnSnow(g, c, m.x, m.z, m.heading, 0.02);
           const flash = 0.5 + 0.5 * Math.sin(time * 9);
           g.getObjectByName("halo")!.scale.setScalar(1.2 + flash * 2.6);
           g.position.y += Math.sin(time * 22) * 0.012;
+          // Its beacon and its headlights are lamps: by night they light the snow round the machine and ahead of it.
+          if (c.night) {
+            const sin = Math.sin(m.heading),
+              cos = Math.cos(m.heading);
+            lamp.glow(g.position.x, g.position.y + 3, g.position.z, BEACON, 0.6 + 1.6 * flash, 12);
+            lamp.glow(g.position.x + sin * 6, g.position.y + 1.6, g.position.z + cos * 6, HEADLIGHT, 2.2, 13);
+          }
         }
       });
   }
@@ -656,7 +832,7 @@ export class Props {
     g.getObjectByName("armR")!.rotation.z = Math.sin(time * 6 + i + 2) * 0.35;
   }
   private poseDeer(g: THREE.Group, m: MoverState, s: Run, time: number) {
-    const staring = m.t >= DEER_TROT_TIME && m.t < DEER_TROT_TIME + DEER_STARE_TIME;
+    const staring = m.t >= m.trot && m.t < m.trot + m.stare;
     g.rotation.set(0, m.heading, 0);
     const stride = staring ? 0 : m.pace > 1 ? 17 : 11;
     const reach = staring ? 0 : m.pace > 1 ? 0.95 : 0.55;

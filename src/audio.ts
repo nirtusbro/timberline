@@ -86,12 +86,12 @@ export class SkiAudio {
     const onSnow = playing && !s.airborne && s.crashTime === 0;
     // Skis hiss louder and brighter in a turn; on ice they rasp; in the air they fall silent.
     this.snow.gain.setTargetAtTime(
-      onSnow ? 0.035 + s.speed * 0.003 + Math.abs(s.heading) * 0.2 + (s.onIce ? 0.08 : 0) : 0,
+      onSnow ? 0.035 + s.speed * 0.003 + Math.abs(s.heading - s.aim) * 0.2 + (s.onIce ? 0.08 : 0) : 0,
       now,
       onSnow ? 0.12 : 0.04,
     );
     this.filter.frequency.setTargetAtTime(
-      (s.onIce ? 2400 : 650) + s.speed * 25 + Math.abs(s.heading) * 2600,
+      (s.onIce ? 2400 : 650) + s.speed * 25 + Math.abs(s.heading - s.aim) * 2600,
       now,
       0.15,
     );
@@ -228,6 +228,15 @@ export class SkiAudio {
         note(f * 3, 0.05, 0.3, 0.025);
         break;
       }
+      case "howl":
+        // Timber says hello: a short rising howl.
+        note(330, 0, 0.5, 0.09, "triangle", 620);
+        note(660, 0.05, 0.45, 0.04, "sine", 1240);
+        break;
+      case "rumble":
+        rush(300, 90, 0.9, 0.5, 0, 0.5);
+        note(80, 0, 0.5, 0.12, "triangle", 50);
+        break;
       case "tick":
         note(1400, 0, 0.03, 0.02, "square");
         break;
